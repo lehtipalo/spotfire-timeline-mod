@@ -1,0 +1,12 @@
+{
+    "apiVersion": "1.2",
+    "version": "1.0",
+    "name": "Spotfire Mods Template",
+    "id":"mods-template",
+    "icon":"icon.svg",
+    "files": [
+        "index.html",
+        "main.css",
+        "bundle.js"
+    ]
+}
