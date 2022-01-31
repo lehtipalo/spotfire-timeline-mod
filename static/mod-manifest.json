@@ -4,6 +4,27 @@
     "name": "Spotfire Mods Template",
     "id":"mods-template",
     "icon":"icon.svg",
+    "dataViewDefinition": {
+        "axes": [
+            {
+                "name": "Time",
+                "mode": "categorical",
+                "placement": "bottom"
+            },
+            {
+                "name": "Title",
+                "mode": "categorical"
+            },
+            {
+                "name": "Description",
+                "mode": "categorical"
+            }
+           
+        ]
+    },
+    "legend": {
+        "defaultVisibility": "hidden"
+    },
     "files": [
         "index.html",
         "main.css",
