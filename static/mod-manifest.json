@@ -20,7 +20,10 @@
                 "mode": "categorical"
             }
            
-        ]
+        ],
+        "colorAxis":{
+            "mode": "dual"
+        }
     },
     "legend": {
         "defaultVisibility": "hidden"

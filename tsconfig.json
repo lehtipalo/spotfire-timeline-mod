@@ -13,6 +13,7 @@
         "outDir": "./build/",
         "lib": ["es2019", "dom"],
         "baseUrl": ".",
+        "moduleResolution": "node",
         "paths": {
             "spotfire-api": ["./spotfire/spotfire-api-1-2"],
         },

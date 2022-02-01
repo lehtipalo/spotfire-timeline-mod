@@ -1,4 +1,5 @@
 import { DataView, DataViewRow } from "spotfire-api";
+import { getLuminance } from "polished";
 import * as d3 from "d3";
 
 const Spotfire = window.Spotfire;
@@ -35,6 +36,7 @@ Spotfire.initialize(async (mod) => {
         if (!hasTime) return;
 
         const timeLeaves = (await (await dataView.hierarchy(timeAxisName))?.root())?.leaves() || [];
+
         const rows = await dataView.allRows() || [];
 
         let timeLineTop = windowSize.height/2 - timelineHeight/2;
@@ -56,6 +58,7 @@ Spotfire.initialize(async (mod) => {
         .join("div")
         .attr("class","timeMarker")
         .attr("style", (d:Spotfire.DataViewHierarchyNode, i) => `left:${timeMarkermargin+i * timeMarkerWidth}px; width:${timeMarkerWidth}px`)
+        .on("click", (e,d) => d.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
         .text(d => d.formattedValue());
 
         modContainer.selectAll(".connector")
@@ -115,9 +118,14 @@ Spotfire.initialize(async (mod) => {
             
             return `
             left:${left}px; 
-            top:${top}px
+            top:${top}px;
+            background-color: ${d.color().hexCode};
+            color: ${contrastColor(d.color().hexCode)};
             `
         })
+        .on("click",(e,d) => {d.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+       
+    })
         .html(d => {
             
             let s = `<strong>${d.categorical(titleAxisName).formattedValue()}</strong>
@@ -188,3 +196,14 @@ export function generalErrorHandler<T extends (dataView: Spotfire.DataView, ...a
         } as T;
     };
 }
+
+function contrastColor(hexCode: string): string {
+    let L = getLuminance(hexCode);
+
+    if ((L + 0.05) / (0.0 + 0.05) > (1.0 + 0.05) / (L + 0.05)) {
+        return "#000000";
+    } else {
+        return "#ffffff";
+    }
+}
+
