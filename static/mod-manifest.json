@@ -18,7 +18,10 @@
            
         ],
         "colorAxis":{
-            "mode": "dual"
+            "mode": "dual",
+            "automaticConfiguration": {
+                "expressionHeuristics": "none"
+            }
         }
     },
     "legend": {
