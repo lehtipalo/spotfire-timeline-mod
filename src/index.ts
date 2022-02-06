@@ -6,7 +6,6 @@ const Spotfire = window.Spotfire;
 const DEBUG = false;
 
 const timeAxisName = "Time";
-const titleAxisName = "Title";
 const descriptionAxisName = "Description";
 const minimumTimeMarkerWidth = 50;
 const timeMarkermargin = 50;
