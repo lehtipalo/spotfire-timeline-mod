@@ -1,4 +1,4 @@
-import { DataView, DataViewRow } from "spotfire-api";
+import { DataView, DataViewRow, DataViewHierarchyNode } from "spotfire-api";
 import { getLuminance } from "polished";
 import * as d3 from "d3";
 
@@ -10,9 +10,11 @@ const descriptionAxisName = "Description";
 const minimumTimeMarkerWidth = 50;
 const timeMarkermargin = 50;
 const timelineHeight = 25;
+const spacing = 25;
 const cardWidth = 150;
 const cardHeight = 100;
 const spaceBetweenCards = 50;
+const maxTimeSegments = 2000;
 
 Spotfire.initialize(async (mod) => {
     /**
@@ -33,11 +35,25 @@ Spotfire.initialize(async (mod) => {
         const hasTime = !!(await dataView.categoricalAxis(timeAxisName));
         const hasDescription = !!(await dataView.categoricalAxis(descriptionAxisName));
 
-        if (!hasTime) return;
+        if (!hasTime) {
+            modContainer.selectAll("*").remove();
+            return;
+        }
 
-        const timeLeaves = (await (await dataView.hierarchy(timeAxisName))?.root())?.leaves() || [];
+        let timeLeaves = (await (await dataView.hierarchy(timeAxisName))?.root())?.leaves() || [];
 
-        const rows = (await dataView.allRows()) || [];
+        if (timeLeaves.length > maxTimeSegments) {
+            modContainer.selectAll("*").remove();
+            return;
+        }
+
+        let timeHierarchy = await dataView.hierarchy(timeAxisName);
+        let timeHierarchyDepth = timeHierarchy?.levels.length || 0;
+        let hierarchyRoot = await timeHierarchy?.root();
+        if (!hierarchyRoot) return;
+
+        let rows = (await dataView.allRows()) || [];
+        let displayRows = rows.filter((row:DataViewRow) => row.categorical(descriptionAxisName).formattedValue() != "")
 
         let timeMarketWidth = (windowSize.width - timeMarkermargin * 2) / timeLeaves.length;
         let timeMarkerWidth = timeMarketWidth < minimumTimeMarkerWidth ? minimumTimeMarkerWidth : timeMarketWidth;
@@ -45,8 +61,8 @@ Spotfire.initialize(async (mod) => {
 
         let timeLineTop =
             cardsPerTimeSegment > 1
-                ? windowSize.height / 2 - timelineHeight / 2
-                : (2 * windowSize.height) / 3 - timelineHeight / 2;
+                ? windowSize.height / 2 - timelineHeight*timeHierarchyDepth / 2
+                : (2 * windowSize.height) / 3 - timelineHeight*timeHierarchyDepth / 2;
 
         // Update mod display
 
@@ -57,28 +73,47 @@ Spotfire.initialize(async (mod) => {
             .attr("class", "timeline")
             .attr(
                 "style",
-                (d, i) => `top:${timeLineTop}px; width:${timeMarkermargin * 2 + timeLeaves.length * timeMarkerWidth}px`
+                (d, i) => `
+                    left:${0}px;
+                    top:${timeLineTop}px; 
+                    width:${timeMarkermargin * 2 + timeLeaves.length * timeMarkerWidth}px;
+                    height:${timelineHeight*timeHierarchyDepth+4}px;
+                    `
             );
+    
+        let hierarchy: d3.HierarchyNode<DataViewHierarchyNode> = d3.hierarchy(hierarchyRoot);
+        hierarchy.sum((d: DataViewHierarchyNode) => (!d?.children && 1) || 0);
+    
+        let partition = d3.partition().size([timeLeaves.length*timeMarkerWidth, (timeHierarchyDepth+1)*timelineHeight]).padding(0).round(false);
+        let partitionedHierarchy: d3.HierarchyRectangularNode<DataViewHierarchyNode> = partition(
+            hierarchy
+        ) as d3.HierarchyRectangularNode<DataViewHierarchyNode>;
 
+        let displayHierarchy = partitionedHierarchy
+            .descendants()
+         .filter((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
+            
         timeline
             .selectAll(".timeMarker")
-            .data(timeLeaves)
+            .data(displayHierarchy)
             .join("div")
             .attr("class", "timeMarker")
-            .on("click", (e, d) => d.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
-            .text((d) => d.formattedValue())
+            .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
+            .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
+            .classed("timeMarker-marked",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>,i) => d.data.markedRowCount() == d.data.rowCount())
             .attr(
                 "style",
-                (d: Spotfire.DataViewHierarchyNode, i) => `
-            left:${timeMarkermargin + i * timeMarkerWidth}px; 
-            width:${timeMarkerWidth}px;
-            background-color:${d.markedRowCount() > 0 ? "darkgray" : "lightgray"}
+                (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>, i) => `
+            left:${timeMarkermargin+d.x0}px; 
+            width:${(d.x1-d.x0)}px;
+            top:${d.y0-timelineHeight}px;
+            height:${d.y1-d.y0}px
             `
             );
 
         modContainer
             .selectAll(".connector")
-            .data(rows)
+            .data(displayRows)
             .join("div")
             .attr("class", "connector")
             .attr("style", (d: DataViewRow, i) => {
@@ -89,20 +124,20 @@ Spotfire.initialize(async (mod) => {
 
                 switch (d.categorical(timeAxisName).leafIndex % cardsPerTimeSegment) {
                     case 0:
-                        top = top - timelineHeight;
-                        height = timelineHeight;
+                        top = top - spacing;
+                        height = spacing;
                         break;
                     case 1:
-                        top = top + timelineHeight;
-                        height = timelineHeight;
+                        top = top + timelineHeight*timeHierarchyDepth;
+                        height = spacing;
                         break;
                     case 2:
-                        top = top - cardHeight - timelineHeight * 2;
-                        height = cardHeight + timelineHeight * 2;
+                        top = top - cardHeight - spacing*2;
+                        height = cardHeight + spacing * 2;
                         break;
                     case 3:
-                        top = top + timelineHeight;
-                        height = timelineHeight * 3 + cardHeight;
+                        top = top + timelineHeight*timeHierarchyDepth;
+                        height = spacing * 2 + cardHeight;
                         break;
                 }
 
@@ -116,7 +151,7 @@ Spotfire.initialize(async (mod) => {
 
         modContainer
             .selectAll(".card")
-            .data(rows)
+            .data(displayRows)
             .join("div")
             .attr("class", "card")
             .on("click", (e, d) => {
@@ -138,16 +173,16 @@ Spotfire.initialize(async (mod) => {
 
                 switch (d.categorical(timeAxisName).leafIndex % cardsPerTimeSegment) {
                     case 0:
-                        top = top - cardHeight - timelineHeight;
+                        top = top - cardHeight - spacing;
                         break;
                     case 1:
-                        top = top + timelineHeight * 2;
+                        top = top + timelineHeight*timeHierarchyDepth+spacing;
                         break;
                     case 2:
-                        top = top - cardHeight * 2 - timelineHeight * 2;
+                        top = top - cardHeight * 2 - spacing * 2;
                         break;
                     case 3:
-                        top = top + cardHeight + timelineHeight * 3;
+                        top = top + timelineHeight*timeHierarchyDepth+cardHeight + spacing*2;
                         break;
                 }
 
