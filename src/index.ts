@@ -3,7 +3,7 @@ import { getLuminance } from "polished";
 import * as d3 from "d3";
 
 const Spotfire = window.Spotfire;
-const DEBUG = false; 
+const DEBUG = false;
 
 const timeAxisName = "Time";
 const titleAxisName = "Title";
@@ -12,7 +12,7 @@ const minimumTimeMarkerWidth = 50;
 const timeMarkermargin = 50;
 const timelineHeight = 25;
 const cardWidth = 150;
-const cardHeight = 100; 
+const cardHeight = 100;
 const spaceBetweenCards = 50;
 
 Spotfire.initialize(async (mod) => {
@@ -31,119 +31,134 @@ Spotfire.initialize(async (mod) => {
     const modContainer = d3.select("#mod-container");
 
     async function onChange(dataView: DataView, windowSize: Spotfire.Size) {
-
         const hasTime = !!(await dataView.categoricalAxis(timeAxisName));
-        const hasTitle = !!(await dataView.categoricalAxis(titleAxisName));
         const hasDescription = !!(await dataView.categoricalAxis(descriptionAxisName));
 
         if (!hasTime) return;
 
-
         const timeLeaves = (await (await dataView.hierarchy(timeAxisName))?.root())?.leaves() || [];
 
-        const rows = await dataView.allRows() || [];
+        const rows = (await dataView.allRows()) || [];
 
-        let timeMarketWidth = (windowSize.width-timeMarkermargin*2)/timeLeaves.length;
+        let timeMarketWidth = (windowSize.width - timeMarkermargin * 2) / timeLeaves.length;
         let timeMarkerWidth = timeMarketWidth < minimumTimeMarkerWidth ? minimumTimeMarkerWidth : timeMarketWidth;
-        let cardsPerTimeSegment = Math.ceil((cardWidth+spaceBetweenCards)/timeMarkerWidth);
-        
-        let timeLineTop = cardsPerTimeSegment > 1 ? windowSize.height/2 - timelineHeight/2 : 2*windowSize.height/3-timelineHeight/2;
-       
+        let cardsPerTimeSegment = Math.ceil((cardWidth + spaceBetweenCards) / timeMarkerWidth);
+
+        let timeLineTop =
+            cardsPerTimeSegment > 1
+                ? windowSize.height / 2 - timelineHeight / 2
+                : (2 * windowSize.height) / 3 - timelineHeight / 2;
 
         // Update mod display
 
-        let timeline = 
-        modContainer.selectAll(".timeline")
-        .data([null])
-        .join("div")
-        .attr("class","timeline")
-        .attr("style", (d, i) => `top:${timeLineTop}px; width:${timeMarkermargin*2+timeLeaves.length*timeMarkerWidth}px`);
+        let timeline = modContainer
+            .selectAll(".timeline")
+            .data([null])
+            .join("div")
+            .attr("class", "timeline")
+            .attr(
+                "style",
+                (d, i) => `top:${timeLineTop}px; width:${timeMarkermargin * 2 + timeLeaves.length * timeMarkerWidth}px`
+            );
 
-        timeline.selectAll(".timeMarker")
-        .data(timeLeaves)
-        .join("div")
-        .attr("class","timeMarker")
-        .on("click", (e,d) => d.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
-        .text(d => d.formattedValue())
-        .attr("style", (d:Spotfire.DataViewHierarchyNode, i) => `
-            left:${timeMarkermargin+i * timeMarkerWidth}px; 
+        timeline
+            .selectAll(".timeMarker")
+            .data(timeLeaves)
+            .join("div")
+            .attr("class", "timeMarker")
+            .on("click", (e, d) => d.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
+            .text((d) => d.formattedValue())
+            .attr(
+                "style",
+                (d: Spotfire.DataViewHierarchyNode, i) => `
+            left:${timeMarkermargin + i * timeMarkerWidth}px; 
             width:${timeMarkerWidth}px;
-            background-color:${d.markedRowCount()>0?"darkgray":"lightgray"}
-            `);
+            background-color:${d.markedRowCount() > 0 ? "darkgray" : "lightgray"}
+            `
+            );
 
-        modContainer.selectAll(".connector")
-        .data(rows)
-        .join("div")
-        .attr("class","connector")
-        .attr("style", (d:DataViewRow,i) => {
+        modContainer
+            .selectAll(".connector")
+            .data(rows)
+            .join("div")
+            .attr("class", "connector")
+            .attr("style", (d: DataViewRow, i) => {
+                let left =
+                    timeMarkermargin + d.categorical(timeAxisName).leafIndex * timeMarkerWidth + timeMarkerWidth / 2;
+                let top = timeLineTop;
+                let height = 0;
 
-            let left = timeMarkermargin+d.categorical(timeAxisName).leafIndex*timeMarkerWidth+timeMarkerWidth/2;
-            let top = timeLineTop;
-            let height = 0;
+                switch (d.categorical(timeAxisName).leafIndex % cardsPerTimeSegment) {
+                    case 0:
+                        top = top - timelineHeight;
+                        height = timelineHeight;
+                        break;
+                    case 1:
+                        top = top + timelineHeight;
+                        height = timelineHeight;
+                        break;
+                    case 2:
+                        top = top - cardHeight - timelineHeight * 2;
+                        height = cardHeight + timelineHeight * 2;
+                        break;
+                    case 3:
+                        top = top + timelineHeight;
+                        height = timelineHeight * 3 + cardHeight;
+                        break;
+                }
 
-            switch  (d.categorical(timeAxisName).leafIndex % cardsPerTimeSegment) {
-                case 0: 
-                    top = top - timelineHeight; 
-                    height = timelineHeight;
-                break;
-                case 1: 
-                    top = top + timelineHeight;
-                    height = timelineHeight; 
-                    break;
-                case 2: 
-                    top = top - cardHeight-timelineHeight*2;
-                    height = cardHeight+timelineHeight*2;
-                    break;
-                case 3: 
-                    top = top + timelineHeight; 
-                    height = timelineHeight*3+cardHeight;
-                    break;
-            }
-            
-            return `
+                return `
             left:${left}px; 
             top:${top}px;
             height:${height}px;
             width:${2}px
-            `
+            `;
+            });
 
-        })
-        
+        modContainer
+            .selectAll(".card")
+            .data(rows)
+            .join("div")
+            .attr("class", "card")
+            .on("click", (e, d) => {
+                d.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+            })
+            .html((d) => {
+                let s = `
+            ${hasDescription ? d.categorical(descriptionAxisName).formattedValue() : ""}
+            `;
+                return s;
+            })
+            .attr("style", (d: DataViewRow, i) => {
+                let left =
+                    timeMarkermargin +
+                    d.categorical(timeAxisName).leafIndex * timeMarkerWidth -
+                    cardWidth / 2 +
+                    timeMarkerWidth / 2;
+                let top = timeLineTop;
 
-        modContainer.selectAll(".card")
-        .data(rows)
-        .join("div")
-        .attr("class","card")
-        .on("click",(e,d) => {d.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
-       
-    })
-        .html(d => {
-            
-            let s = `<strong>${hasTitle ? d.categorical(titleAxisName).formattedValue():""}</strong>
-            <br>
-            ${hasDescription ? d.categorical(descriptionAxisName).formattedValue():""}
-            `
-                        return s;
-        })
-        .attr("style", (d:DataViewRow, i) => {
+                switch (d.categorical(timeAxisName).leafIndex % cardsPerTimeSegment) {
+                    case 0:
+                        top = top - cardHeight - timelineHeight;
+                        break;
+                    case 1:
+                        top = top + timelineHeight * 2;
+                        break;
+                    case 2:
+                        top = top - cardHeight * 2 - timelineHeight * 2;
+                        break;
+                    case 3:
+                        top = top + cardHeight + timelineHeight * 3;
+                        break;
+                }
 
-            let left = timeMarkermargin+d.categorical(timeAxisName).leafIndex*timeMarkerWidth-cardWidth/2+timeMarkerWidth/2;
-            let top = timeLineTop;
-
-            switch  (d.categorical(timeAxisName).leafIndex % cardsPerTimeSegment) {
-                case 0: top = top - cardHeight-timelineHeight; break;
-                case 1: top = top + timelineHeight*2; break;
-                case 2: top = top - cardHeight*2-timelineHeight*2;break;
-                case 3: top = top + cardHeight+timelineHeight*3; break;
-            }
-            
-            return `
+                return `
             left:${left}px; 
             top:${top}px;
             background-color: ${d.color().hexCode};
             color: ${contrastColor(d.color().hexCode)};
-            `
-        });
+            `;
+            });
 
         context.signalRenderComplete();
     }
@@ -215,4 +230,3 @@ function contrastColor(hexCode: string): string {
         return "#ffffff";
     }
 }
-

@@ -12,10 +12,6 @@
                 "placement": "bottom"
             },
             {
-                "name": "Title",
-                "mode": "categorical"
-            },
-            {
                 "name": "Description",
                 "mode": "categorical"
             }
