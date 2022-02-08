@@ -139,9 +139,9 @@ window.Spotfire.initialize(async (mod) => {
                 verticalPosition = 0;
             } else if (index-lastIndexforPosition[1] >= timeSegmentsPerCard) {
                 verticalPosition = 1;
-            } else if (index-lastIndexforPosition[2] >= timeSegmentsPerCard) {
+            } else if (index-lastIndexforPosition[2] >= timeSegmentsPerCard && index-lastIndexforPosition[0] >= timeSegmentsPerCard) {
                 verticalPosition = 2;
-            } else if (index-lastIndexforPosition[3] >= timeSegmentsPerCard) {
+            } else if (index-lastIndexforPosition[3] >= timeSegmentsPerCard && index-lastIndexforPosition[2] >= timeSegmentsPerCard) {
 
                 verticalPosition = 3; 
             }
@@ -156,7 +156,7 @@ window.Spotfire.initialize(async (mod) => {
                   verticalPosition: verticalPosition,
                   timePosition: row.categorical(timeAxisName).leafIndex,
                   color: row.color(),
-                  row: row
+                  row: row,
                 }
             )
             }    

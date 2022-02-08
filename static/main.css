@@ -30,7 +30,6 @@ body {
 }
 
 .card {
-    border: solid lightgray 2px;
     background-color: azure;
     padding: 5px;
     margin: 0px;
@@ -44,6 +43,7 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
+    box-shadow: 5px 5px 5px lightgray;
 }
 
 .connector {
