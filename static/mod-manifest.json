@@ -3,7 +3,7 @@
     "version": "1.0",
     "name": "Timeline",
     "id":"sfire-mods-timeline",
-    "icon":"icon.svg",
+    "icon":"Timeline Mod Icon.svg",
     "dataViewDefinition": {
         "axes": [
             {
