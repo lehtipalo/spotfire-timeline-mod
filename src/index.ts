@@ -1,22 +1,32 @@
-import { DataView, DataViewRow, DataViewHierarchyNode } from "spotfire-api";
+import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo } from "spotfire-api";
 import { getLuminance } from "polished";
 import * as d3 from "d3";
 
-const Spotfire = window.Spotfire;
 const DEBUG = false;
 
-const timeAxisName = "Time";
-const descriptionAxisName = "Description";
-const minimumTimeMarkerWidth = 50;
-const timeMarkermargin = 50;
-const timelineHeight = 25;
-const spacing = 25;
-const cardWidth = 150;
-const cardHeight = 100;
-const spaceBetweenCards = 50;
-const maxTimeSegments = 2000;
+interface Card {
+    timePosition: number;
+    verticalPosition: number;
+    title: string;
+    description: string;
+    color: DataViewColorInfo;
+    row: DataViewRow;
+};
 
-Spotfire.initialize(async (mod) => {
+/**
+ * Constants
+ */
+const timeAxisName = "Time",
+    descriptionAxisName = "Description",
+    minimumTimeMarkerWidth = 50,
+    timeMarkermargin = 50,
+    timelineHeight = 25,
+    spacing = 25,
+    cardWidth = 150,
+    cardHeight = 100,
+    maxTimeSegments = 2000;
+
+window.Spotfire.initialize(async (mod) => {
     /**
      * Initialize render context - should show 'busy' cursor.
      * A necessary step for printing (another step is calling render complete)
@@ -32,6 +42,7 @@ Spotfire.initialize(async (mod) => {
     const modContainer = d3.select("#mod-container");
 
     async function onChange(dataView: DataView, windowSize: Spotfire.Size) {
+
         const hasTime = !!(await dataView.categoricalAxis(timeAxisName));
         const hasDescription = !!(await dataView.categoricalAxis(descriptionAxisName));
 
@@ -52,19 +63,13 @@ Spotfire.initialize(async (mod) => {
         let hierarchyRoot = await timeHierarchy?.root();
         if (!hierarchyRoot) return;
 
-        let rows = (await dataView.allRows()) || [];
-        let displayRows = rows.filter((row:DataViewRow) => row.categorical(descriptionAxisName).formattedValue() != "")
-
         let timeMarketWidth = (windowSize.width - timeMarkermargin * 2) / timeLeaves.length;
         let timeMarkerWidth = timeMarketWidth < minimumTimeMarkerWidth ? minimumTimeMarkerWidth : timeMarketWidth;
-        let cardsPerTimeSegment = Math.ceil((cardWidth + spaceBetweenCards) / timeMarkerWidth);
+        let timeSegmentsPerCard = Math.ceil((cardWidth + timeMarkerWidth) / timeMarkerWidth);
 
-        let timeLineTop =
-            cardsPerTimeSegment > 1
-                ? windowSize.height / 2 - timelineHeight*timeHierarchyDepth / 2
-                : (2 * windowSize.height) / 3 - timelineHeight*timeHierarchyDepth / 2;
+        let timeLineTop = windowSize.height / 2 - timelineHeight*timeHierarchyDepth / 2;
 
-        // Update mod display
+        // render timeline
 
         let timeline = modContainer
             .selectAll(".timeline")
@@ -111,18 +116,66 @@ Spotfire.initialize(async (mod) => {
             `
             );
 
+        
+        // render cards
+
+        let rows = (await dataView.allRows()) || [];
+    
+        let cards:Card[] = [];
+
+        let lastIndexforPosition = Array(4).fill(-4);
+        let lastIndex = -1;
+        let lastVerticalPosition = -1;
+
+        rows.forEach((row:DataViewRow) => {
+
+            if (row.categorical(descriptionAxisName).formattedValue() != "") {
+            let index = row.categorical(timeAxisName).leafIndex;
+  
+            let verticalPosition = -1;
+            if (index == lastIndex) {
+                verticalPosition = lastVerticalPosition
+            } else if (index-lastIndexforPosition[0] >= timeSegmentsPerCard) {
+                verticalPosition = 0;
+            } else if (index-lastIndexforPosition[1] >= timeSegmentsPerCard) {
+                verticalPosition = 1;
+            } else if (index-lastIndexforPosition[2] >= timeSegmentsPerCard) {
+                verticalPosition = 2;
+            } else if (index-lastIndexforPosition[3] >= timeSegmentsPerCard) {
+
+                verticalPosition = 3; 
+            }
+            lastIndexforPosition[verticalPosition] = index;
+            lastIndex = index; 
+            lastVerticalPosition = verticalPosition;
+
+            cards.push(
+                {
+                  title: "",
+                  description:  hasDescription ? row.categorical(descriptionAxisName).formattedValue(): "",
+                  verticalPosition: verticalPosition,
+                  timePosition: row.categorical(timeAxisName).leafIndex,
+                  color: row.color(),
+                  row: row
+                }
+            )
+            }    
+         }
+        )
+
+        let displayCards = cards.filter((card:Card) => card.description != "" && card.verticalPosition > -1 )
         modContainer
             .selectAll(".connector")
-            .data(displayRows)
+            .data(displayCards)
             .join("div")
             .attr("class", "connector")
-            .attr("style", (d: DataViewRow, i) => {
+            .attr("style", (d: Card, i) => {
                 let left =
-                    timeMarkermargin + d.categorical(timeAxisName).leafIndex * timeMarkerWidth + timeMarkerWidth / 2;
+                    timeMarkermargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2;
                 let top = timeLineTop;
                 let height = 0;
 
-                switch (d.categorical(timeAxisName).leafIndex % cardsPerTimeSegment) {
+                switch (d.verticalPosition) {
                     case 0:
                         top = top - spacing;
                         height = spacing;
@@ -151,27 +204,27 @@ Spotfire.initialize(async (mod) => {
 
         modContainer
             .selectAll(".card")
-            .data(displayRows)
+            .data(displayCards)
             .join("div")
             .attr("class", "card")
             .on("click", (e, d) => {
-                d.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+                d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
             })
             .html((d) => {
                 let s = `
-            ${hasDescription ? d.categorical(descriptionAxisName).formattedValue() : ""}
+            ${d.description}
             `;
                 return s;
             })
-            .attr("style", (d: DataViewRow, i) => {
+            .attr("style", (d: Card, i) => {
                 let left =
                     timeMarkermargin +
-                    d.categorical(timeAxisName).leafIndex * timeMarkerWidth -
+                    d.timePosition * timeMarkerWidth -
                     cardWidth / 2 +
                     timeMarkerWidth / 2;
                 let top = timeLineTop;
 
-                switch (d.categorical(timeAxisName).leafIndex % cardsPerTimeSegment) {
+                switch (d.verticalPosition) {
                     case 0:
                         top = top - cardHeight - spacing;
                         break;
@@ -189,8 +242,8 @@ Spotfire.initialize(async (mod) => {
                 return `
             left:${left}px; 
             top:${top}px;
-            background-color: ${d.color().hexCode};
-            color: ${contrastColor(d.color().hexCode)};
+            background-color: ${d.color.hexCode};
+            color: ${contrastColor(d.color.hexCode)};
             `;
             });
 
