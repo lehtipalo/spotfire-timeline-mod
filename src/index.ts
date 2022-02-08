@@ -100,7 +100,7 @@ Spotfire.initialize(async (mod) => {
             .attr("class", "timeMarker")
             .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
             .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
-            .classed("timeMarker-marked",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>,i) => d.data.markedRowCount() == d.data.rowCount())
+            .classed("timeMarker-marked",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>,i) => d.data.rowCount() != 0 && d.data.markedRowCount() == d.data.rowCount())
             .attr(
                 "style",
                 (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>, i) => `
