@@ -21,7 +21,8 @@ const timeAxisName = "Time",
     minimumTimeMarkerWidth = 50,
     timeMarkermargin = 50,
     timelineHeight = 25,
-    spacing = 25,
+    verticalSpaceBetweenCards = 12.5,
+    horizontalSpaceBetweenCards = 12.5,
     cardWidth = 150,
     cardHeight = 40,
     maxTimeSegments = 2000;
@@ -65,57 +66,59 @@ window.Spotfire.initialize(async (mod) => {
 
         let timeMarketWidth = (windowSize.width - timeMarkermargin * 2) / timeLeaves.length;
         let timeMarkerWidth = timeMarketWidth < minimumTimeMarkerWidth ? minimumTimeMarkerWidth : timeMarketWidth;
-        let timeSegmentsPerCard = Math.ceil((cardWidth + timeMarkerWidth) / timeMarkerWidth);
+        let timeSegmentsPerCard = Math.ceil((cardWidth+horizontalSpaceBetweenCards) / timeMarkerWidth);
 
         let timeLineTop = windowSize.height / 2 - timelineHeight*timeHierarchyDepth / 2;
 
         // render cards
 
-        let rows = (await dataView.allRows()) || [];
+        
+        // spread out cards vertically to avoid overlap
     
         let cards:Card[] = [];
 
-        let lastIndexforPosition = Array(4).fill(-4);
-        let lastIndex = -1;
-        let lastVerticalPosition = -1;
+        let lastPosition = new Map();
+        let maxStackedCards = 0;
 
-        rows.forEach((row:DataViewRow) => {
+        timeLeaves.forEach((node:DataViewHierarchyNode) => {
 
-            if (row.categorical(descriptionAxisName).formattedValue() != "") {
-            let index = row.categorical(timeAxisName).leafIndex;
-  
-            let verticalPosition = -1;
-            if (index == lastIndex) {
-                verticalPosition = lastVerticalPosition;
-            } else if (index-lastIndexforPosition[0] >= timeSegmentsPerCard) {
-                verticalPosition = 0;
-            } else if (index-lastIndexforPosition[1] >= timeSegmentsPerCard) {
-                verticalPosition = 1;
-            } else if (index-lastIndexforPosition[2] >= timeSegmentsPerCard) {
-                verticalPosition = 2;
-            } else if (index-lastIndexforPosition[3] >= timeSegmentsPerCard) {
+            node.rows().forEach((row:DataViewRow) => {
 
-                verticalPosition = 3; 
-            }
-            lastIndexforPosition[verticalPosition] = index;
-            lastIndex = index; 
-            lastVerticalPosition = verticalPosition;
-
-            cards.push(
-                {
-                  title: "",
-                  description:  hasDescription ? row.categorical(descriptionAxisName).formattedValue(): "",
-                  verticalPosition: verticalPosition,
-                  timePosition: row.categorical(timeAxisName).leafIndex,
-                  color: row.color(),
-                  row: row,
-                }
+                if (row.categorical(descriptionAxisName).formattedValue() != "") {
+                    
+                    let index = row.categorical(timeAxisName).leafIndex;
+                    let vp = 0;
+        
+                    while (lastPosition.get(vp) && index-lastPosition.get(vp) < timeSegmentsPerCard) {
+                        vp++;
+                    }
+                    lastPosition.set(vp,index)
+                    maxStackedCards = vp > maxStackedCards ? vp : maxStackedCards;
+    
+                    cards.push(
+                        {
+                        title: "",
+                        description:  hasDescription ? row.categorical(descriptionAxisName).formattedValue(): "",
+                        verticalPosition: vp,
+                        timePosition: row.categorical(timeAxisName).leafIndex,
+                        color: row.color(),
+                        row: row,
+                        }
+                    )
+                }    
+             }
             )
-            }    
-         }
-        )
+    
+
+        });
 
         let displayCards = cards.filter((card:Card) => card.description != "" && card.verticalPosition > -1 )
+
+        let cardSpacing = cardHeight + verticalSpaceBetweenCards;
+        let totalSpaceRequired = cardSpacing*maxStackedCards + timelineHeight*timeHierarchyDepth;
+        
+        cardSpacing = totalSpaceRequired < windowSize.height ? cardSpacing : (windowSize.height- timelineHeight*timeHierarchyDepth-cardHeight*2) / maxStackedCards;
+     
         modContainer
             .selectAll(".connector")
             .data(displayCards)
@@ -127,22 +130,17 @@ window.Spotfire.initialize(async (mod) => {
                 let top = timeLineTop;
                 let height = 0;
 
-                switch (d.verticalPosition) {
+                let group = d.verticalPosition % 2;
+                let lane = Math.floor(d.verticalPosition / 2);
+
+                switch (group) {
                     case 0:
-                        top = top - spacing;
-                        height = spacing;
+                        top = top - (lane+1)*(cardSpacing);
+                        height = (lane+1)*(cardSpacing);
                         break;
                     case 1:
                         top = top + timelineHeight*timeHierarchyDepth;
-                        height = spacing;
-                        break;
-                    case 2:
-                        top = top - cardHeight - spacing*2;
-                        height = cardHeight + spacing * 2;
-                        break;
-                    case 3:
-                        top = top + timelineHeight*timeHierarchyDepth;
-                        height = spacing * 2 + cardHeight;
+                        height = verticalSpaceBetweenCards + lane*(cardSpacing);
                         break;
                 }
 
@@ -176,18 +174,15 @@ window.Spotfire.initialize(async (mod) => {
                     timeMarkerWidth / 2;
                 let top = timeLineTop;
 
-                switch (d.verticalPosition) {
+                let group = d.verticalPosition % 2;
+                let lane = Math.floor(d.verticalPosition / 2)
+
+                switch (group) {
                     case 0:
-                        top = top - cardHeight - spacing;
+                        top = top  - verticalSpaceBetweenCards-cardHeight-(lane)*(cardSpacing);
                         break;
                     case 1:
-                        top = top + timelineHeight*timeHierarchyDepth+spacing;
-                        break;
-                    case 2:
-                        top = top - cardHeight * 2 - spacing * 2;
-                        break;
-                    case 3:
-                        top = top + timelineHeight*timeHierarchyDepth+cardHeight + spacing*2;
+                        top = top + verticalSpaceBetweenCards + timelineHeight*timeHierarchyDepth+lane*(cardSpacing);
                         break;
                 }
 
