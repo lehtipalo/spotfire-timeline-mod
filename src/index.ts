@@ -23,7 +23,7 @@ const timeAxisName = "Time",
     timelineHeight = 25,
     spacing = 25,
     cardWidth = 150,
-    cardHeight = 100,
+    cardHeight = 40,
     maxTimeSegments = 2000;
 
 window.Spotfire.initialize(async (mod) => {
@@ -103,6 +103,10 @@ window.Spotfire.initialize(async (mod) => {
             .data(displayHierarchy)
             .join("div")
             .attr("class", "timeMarker")
+            .classed("timeMarker-top-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == 0)
+            .classed("timeMarker-top-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x1 == timeLeaves.length*timeMarkerWidth && d.data.level == 0)
+            .classed("timeMarker-bottom-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.children == undefined)
+            .classed("timeMarker-bottom-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth) && d.data.children == undefined)
             .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
             .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
             .classed("timeMarker-marked",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>,i) => d.data.rowCount() != 0 && d.data.markedRowCount() == d.data.rowCount())
@@ -240,8 +244,10 @@ window.Spotfire.initialize(async (mod) => {
                 }
 
                 return `
-            left:${left}px; 
+            left:${left}px;
             top:${top}px;
+            height: ${cardHeight}px;
+            width: ${cardWidth}px;
             background-color: ${d.color.hexCode};
             color: ${contrastColor(d.color.hexCode)};
             `;
