@@ -69,58 +69,6 @@ window.Spotfire.initialize(async (mod) => {
 
         let timeLineTop = windowSize.height / 2 - timelineHeight*timeHierarchyDepth / 2;
 
-        // render timeline
-
-        let timeline = modContainer
-            .selectAll(".timeline")
-            .data([null])
-            .join("div")
-            .attr("class", "timeline")
-            .attr(
-                "style",
-                (d, i) => `
-                    left:${0}px;
-                    top:${timeLineTop}px; 
-                    width:${timeMarkermargin * 2 + timeLeaves.length * timeMarkerWidth}px;
-                    height:${timelineHeight*timeHierarchyDepth+4}px;
-                    `
-            );
-    
-        let hierarchy: d3.HierarchyNode<DataViewHierarchyNode> = d3.hierarchy(hierarchyRoot);
-        hierarchy.sum((d: DataViewHierarchyNode) => (!d?.children && 1) || 0);
-    
-        let partition = d3.partition().size([timeLeaves.length*timeMarkerWidth, (timeHierarchyDepth+1)*timelineHeight]).padding(0).round(false);
-        let partitionedHierarchy: d3.HierarchyRectangularNode<DataViewHierarchyNode> = partition(
-            hierarchy
-        ) as d3.HierarchyRectangularNode<DataViewHierarchyNode>;
-
-        let displayHierarchy = partitionedHierarchy
-            .descendants()
-         .filter((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
-            
-        timeline
-            .selectAll(".timeMarker")
-            .data(displayHierarchy)
-            .join("div")
-            .attr("class", "timeMarker")
-            .classed("timeMarker-top-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == 0)
-            .classed("timeMarker-top-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x1 == timeLeaves.length*timeMarkerWidth && d.data.level == 0)
-            .classed("timeMarker-bottom-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.children == undefined)
-            .classed("timeMarker-bottom-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth) && d.data.children == undefined)
-            .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
-            .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
-            .classed("timeMarker-marked",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>,i) => d.data.rowCount() != 0 && d.data.markedRowCount() == d.data.rowCount())
-            .attr(
-                "style",
-                (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>, i) => `
-            left:${timeMarkermargin+d.x0}px; 
-            width:${(d.x1-d.x0)}px;
-            top:${d.y0-timelineHeight}px;
-            height:${d.y1-d.y0}px
-            `
-            );
-
-        
         // render cards
 
         let rows = (await dataView.allRows()) || [];
@@ -138,14 +86,14 @@ window.Spotfire.initialize(async (mod) => {
   
             let verticalPosition = -1;
             if (index == lastIndex) {
-                verticalPosition = lastVerticalPosition
+                verticalPosition = lastVerticalPosition;
             } else if (index-lastIndexforPosition[0] >= timeSegmentsPerCard) {
                 verticalPosition = 0;
             } else if (index-lastIndexforPosition[1] >= timeSegmentsPerCard) {
                 verticalPosition = 1;
-            } else if (index-lastIndexforPosition[2] >= timeSegmentsPerCard && index-lastIndexforPosition[0] >= timeSegmentsPerCard) {
+            } else if (index-lastIndexforPosition[2] >= timeSegmentsPerCard) {
                 verticalPosition = 2;
-            } else if (index-lastIndexforPosition[3] >= timeSegmentsPerCard && index-lastIndexforPosition[2] >= timeSegmentsPerCard) {
+            } else if (index-lastIndexforPosition[3] >= timeSegmentsPerCard) {
 
                 verticalPosition = 3; 
             }
@@ -252,6 +200,62 @@ window.Spotfire.initialize(async (mod) => {
             color: ${contrastColor(d.color.hexCode)};
             `;
             });
+
+            // render timeline
+
+            let timeline = modContainer
+            .selectAll(".timeline")
+            .data([null])
+            .join("div")
+            .attr("class", "timeline")
+            .attr(
+                "style",
+                (d, i) => `
+                    left:${timeMarkermargin}px;
+                    top:${timeLineTop}px; 
+                    width:${timeLeaves.length * timeMarkerWidth}px;
+                    height:${timelineHeight*timeHierarchyDepth+2}px;
+                    `
+            );
+    
+        let hierarchy: d3.HierarchyNode<DataViewHierarchyNode> = d3.hierarchy(hierarchyRoot);
+        hierarchy.sum((d: DataViewHierarchyNode) => (!d?.children && 1) || 0);
+    
+        let partition = d3.partition().size([timeLeaves.length*timeMarkerWidth, (timeHierarchyDepth+1)*timelineHeight]).padding(0).round(false);
+        let partitionedHierarchy: d3.HierarchyRectangularNode<DataViewHierarchyNode> = partition(
+            hierarchy
+        ) as d3.HierarchyRectangularNode<DataViewHierarchyNode>;
+
+        let displayHierarchy = partitionedHierarchy
+            .descendants()
+            .filter((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
+            
+        timeline
+            .selectAll(".timeMarker")
+            .data(displayHierarchy)
+            .join("div")
+            .attr("class", "timeMarker")
+            .classed("timeMarker-top-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == 0)
+            .classed("timeMarker-top-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x1 == timeLeaves.length*timeMarkerWidth && d.data.level == 0)
+            .classed("timeMarker-bottom-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == timeHierarchyDepth-1)
+            .classed("timeMarker-bottom-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth) && d.data.level == timeHierarchyDepth-1)
+            .classed("timeMarker-top",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
+            .classed("timeMarker-bottom",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.children == undefined)
+            .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
+            .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
+            .classed("timeMarker-marked",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>,i) => d.data.rowCount() != 0 && d.data.markedRowCount() == d.data.rowCount())
+            .attr(
+                "style",
+                (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>, i) => `
+            left:${d.x0}px; 
+            width:${(d.x1-d.x0)}px;
+            top:${d.y0-timelineHeight}px;
+            height:${d.y1-d.y0}px
+            `
+            );
+    
+            
+    
 
         context.signalRenderComplete();
     }
