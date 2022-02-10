@@ -18,7 +18,7 @@ interface Card {
  */
 const timeAxisName = "Time",
     descriptionAxisName = "Description",
-    minimumTimeMarkerWidth = 50,
+    minimumTimeMarkerWidth = 43,
     timeMarkermargin = 50,
     timelineHeight = 25,
     verticalSpaceBetweenCards = 12.5,
@@ -33,6 +33,13 @@ window.Spotfire.initialize(async (mod) => {
      * A necessary step for printing (another step is calling render complete)
      */
     const context = mod.getRenderContext();
+
+    // adapt to canvas style
+    document.querySelector("#extra_styling")!.innerHTML = `
+    .body { fill: ${context.styling.general.font.color}; font-size: ${context.styling.general.font.fontSize}px; font-weight: ${context.styling.general.font.fontWeight}; font-style: ${context.styling.general.font.fontStyle};}
+    .timeMarker {border-color: ${context.styling.scales.line.stroke}} 
+    .connector {background-color: ${context.styling.scales.line.stroke}}
+    `;
 
     const reader = mod.createReader(mod.visualization.data(), mod.windowSize());
 
@@ -119,6 +126,8 @@ window.Spotfire.initialize(async (mod) => {
         
         cardSpacing = totalSpaceRequired < windowSize.height ? cardSpacing : (windowSize.height- timelineHeight*timeHierarchyDepth-cardHeight*2) / maxStackedCards;
      
+        // render connectors between the cards and the timeline
+        
         modContainer
             .selectAll(".connector")
             .data(displayCards)
@@ -139,8 +148,8 @@ window.Spotfire.initialize(async (mod) => {
                         height = (lane+1)*(cardSpacing);
                         break;
                     case 1:
-                        top = top + timelineHeight*timeHierarchyDepth;
-                        height = verticalSpaceBetweenCards + lane*(cardSpacing);
+                        top = top + timelineHeight*timeHierarchyDepth+2;
+                        height = verticalSpaceBetweenCards + lane*(cardSpacing)-2;
                         break;
                 }
 
@@ -208,7 +217,7 @@ window.Spotfire.initialize(async (mod) => {
                 (d, i) => `
                     left:${timeMarkermargin}px;
                     top:${timeLineTop}px; 
-                    width:${timeLeaves.length * timeMarkerWidth}px;
+                    width:${timeLeaves.length * timeMarkerWidth+2}px;
                     height:${timelineHeight*timeHierarchyDepth+2}px;
                     `
             );
@@ -233,19 +242,19 @@ window.Spotfire.initialize(async (mod) => {
             .classed("timeMarker-top-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == 0)
             .classed("timeMarker-top-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x1 == timeLeaves.length*timeMarkerWidth && d.data.level == 0)
             .classed("timeMarker-bottom-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == timeHierarchyDepth-1)
+            .classed("timeMarker-right", (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth))
             .classed("timeMarker-bottom-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth) && d.data.level == timeHierarchyDepth-1)
             .classed("timeMarker-top",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
             .classed("timeMarker-bottom",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.children == undefined)
             .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
             .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
-            .classed("timeMarker-marked",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>,i) => d.data.rowCount() != 0 && d.data.markedRowCount() == d.data.rowCount())
             .attr(
                 "style",
                 (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>, i) => `
             left:${d.x0}px; 
-            width:${(d.x1-d.x0)}px;
+            width:${(d.x1-d.x0)-5}px;
             top:${d.y0-timelineHeight}px;
-            height:${d.y1-d.y0}px
+            height:${d.y1-d.y0}px;
             `
             );
     
