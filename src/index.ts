@@ -128,7 +128,14 @@ window.Spotfire.initialize(async (mod) => {
      
         // render connectors between the cards and the timeline
         
-        modContainer
+
+        let connectorContainer = modContainer
+            .selectAll("#connectors")
+            .data([null])
+            .join("div")
+            .attr("id", "connectors");
+
+        connectorContainer
             .selectAll(".connector")
             .data(displayCards)
             .join("div")
@@ -161,9 +168,15 @@ window.Spotfire.initialize(async (mod) => {
             `;
             });
 
-        modContainer
+        let cardContainer = modContainer
+            .selectAll("#cards")
+            .data([null])
+            .join("div")
+            .attr("id", "cards");
+
+        cardContainer
             .selectAll(".card")
-            .data(displayCards)
+            .data(cards)
             .join("div")
             .attr("class", "card")
             .on("click", (e, d) => {
