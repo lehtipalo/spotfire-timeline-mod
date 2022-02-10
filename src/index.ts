@@ -17,7 +17,7 @@ interface Card {
  * Constants
  */
 const timeAxisName = "Time",
-    descriptionAxisName = "Description",
+    descriptionAxisName = "Event",
     minimumTimeMarkerWidth = 43,
     timeMarkermargin = 50,
     timelineHeight = 25,

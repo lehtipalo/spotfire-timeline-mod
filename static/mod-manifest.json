@@ -12,8 +12,9 @@
                 "placement": "bottom"
             },
             {
-                "name": "Description",
-                "mode": "categorical"
+                "name": "Event",
+                "mode": "categorical",
+                "placement": "left"
             }
            
         ],
