@@ -100,7 +100,7 @@ window.Spotfire.initialize(async (mod) => {
                         vp++;
                     }
                     lastPosition.set(vp,index)
-                    maxStackedCards = vp > maxStackedCards ? vp : maxStackedCards;
+                    maxStackedCards = vp+1 > maxStackedCards ? vp+1 : maxStackedCards;
     
                     cards.push(
                         {
@@ -122,9 +122,9 @@ window.Spotfire.initialize(async (mod) => {
         let displayCards = cards.filter((card:Card) => card.description != "" && card.verticalPosition > -1 )
 
         let cardSpacing = cardHeight + verticalSpaceBetweenCards;
-        let totalSpaceRequired = cardSpacing*maxStackedCards + timelineHeight*timeHierarchyDepth;
+        let totalSpaceRequired = cardSpacing*(2*Math.ceil(maxStackedCards/2)) + timelineHeight*timeHierarchyDepth;
         
-        cardSpacing = totalSpaceRequired < windowSize.height ? cardSpacing : (windowSize.height- timelineHeight*timeHierarchyDepth-cardHeight*2) / maxStackedCards;
+        cardSpacing = totalSpaceRequired < windowSize.height ? cardSpacing : (windowSize.height- timelineHeight*timeHierarchyDepth-cardHeight*2) / (2*Math.ceil(maxStackedCards/2));
      
         // render connectors between the cards and the timeline
         
