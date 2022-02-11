@@ -98,7 +98,7 @@ window.Spotfire.initialize(async (mod) => {
                     let index = row.categorical(timeAxisName).leafIndex;
                     let vp = 0;
         
-                    while (lastPosition.get(vp) != undefined && index-lastPosition.get(vp) <= timeSegmentsPerCard) {
+                    while (lastPosition.get(vp) != undefined && index-lastPosition.get(vp) < timeSegmentsPerCard) {
                         vp++;
                     }
                     lastPosition.set(vp,index)
