@@ -24,7 +24,7 @@ const timeAxisName = "Time",
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
     cardWidth = 150,
-    cardHeight = 40,
+    cardHeight = 50,
     maxTimeSegments = 2000,
     scaleToFitHorizontally = false;
 
