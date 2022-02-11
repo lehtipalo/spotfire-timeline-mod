@@ -19,13 +19,14 @@ interface Card {
 const timeAxisName = "Time",
     descriptionAxisName = "Event",
     minimumTimeMarkerWidth = 43,
-    timeMarkermargin = 50,
+    timeMarkermargin = 60,
     timelineHeight = 25,
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
     cardWidth = 150,
     cardHeight = 40,
-    maxTimeSegments = 2000;
+    maxTimeSegments = 2000,
+    scaleToFitHorizontally = false;
 
 window.Spotfire.initialize(async (mod) => {
     /**
@@ -72,7 +73,7 @@ window.Spotfire.initialize(async (mod) => {
         if (!hierarchyRoot) return;
 
         let timeMarketWidth = (windowSize.width - timeMarkermargin * 2) / timeLeaves.length;
-        let timeMarkerWidth = timeMarketWidth < minimumTimeMarkerWidth ? minimumTimeMarkerWidth : timeMarketWidth;
+        let timeMarkerWidth = timeMarketWidth >= minimumTimeMarkerWidth || scaleToFitHorizontally ?  timeMarketWidth : minimumTimeMarkerWidth;
         let timeSegmentsPerCard = Math.ceil((cardWidth+horizontalSpaceBetweenCards) / timeMarkerWidth);
 
         let timeLineTop = windowSize.height / 2 - timelineHeight*timeHierarchyDepth / 2;
@@ -96,7 +97,7 @@ window.Spotfire.initialize(async (mod) => {
                     let index = row.categorical(timeAxisName).leafIndex;
                     let vp = 0;
         
-                    while (lastPosition.get(vp) && index-lastPosition.get(vp) < timeSegmentsPerCard) {
+                    while (lastPosition.get(vp) != undefined && index-lastPosition.get(vp) <= timeSegmentsPerCard) {
                         vp++;
                     }
                     lastPosition.set(vp,index)
@@ -127,7 +128,7 @@ window.Spotfire.initialize(async (mod) => {
         cardSpacing = totalSpaceRequired < windowSize.height ? cardSpacing : (windowSize.height- timelineHeight*timeHierarchyDepth-cardHeight*2) / (2*Math.ceil(maxStackedCards/2));
      
         // render connectors between the cards and the timeline
-        
+         let key = (d: any) => d.row.elementId(true);       
 
         let connectorContainer = modContainer
             .selectAll("#connectors")
@@ -137,36 +138,12 @@ window.Spotfire.initialize(async (mod) => {
 
         connectorContainer
             .selectAll(".connector")
-            .data(displayCards)
+            .data(displayCards,key)
             .join("div")
             .attr("class", "connector")
-            .attr("style", (d: Card, i) => {
-                let left =
-                    timeMarkermargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2;
-                let top = timeLineTop;
-                let height = 0;
-
-                let group = d.verticalPosition % 2;
-                let lane = Math.floor(d.verticalPosition / 2);
-
-                switch (group) {
-                    case 0:
-                        top = top - (lane+1)*(cardSpacing);
-                        height = (lane+1)*(cardSpacing);
-                        break;
-                    case 1:
-                        top = top + timelineHeight*timeHierarchyDepth+2;
-                        height = verticalSpaceBetweenCards + lane*(cardSpacing)-2;
-                        break;
-                }
-
-                return `
-            left:${left}px; 
-            top:${top}px;
-            height:${height}px;
-            width:${2}px
-            `;
-            });
+            .style("left",(d) => `${timeMarkermargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`) 
+            .style("top",(d) => `${calcConnectorTop(d)}px`)
+            .style("height",(d) => `${calcConnectorHeight(d)}px`);
 
         let cardContainer = modContainer
             .selectAll("#cards")
@@ -176,7 +153,7 @@ window.Spotfire.initialize(async (mod) => {
 
         cardContainer
             .selectAll(".card")
-            .data(cards)
+            .data(cards,key)
             .join("div")
             .attr("class", "card")
             .on("click", (e, d) => {
@@ -188,35 +165,17 @@ window.Spotfire.initialize(async (mod) => {
             `;
                 return s;
             })
-            .attr("style", (d: Card, i) => {
-                let left =
+            .style("left",(d) => `${
                     timeMarkermargin +
                     d.timePosition * timeMarkerWidth -
                     cardWidth / 2 +
-                    timeMarkerWidth / 2;
-                let top = timeLineTop;
-
-                let group = d.verticalPosition % 2;
-                let lane = Math.floor(d.verticalPosition / 2)
-
-                switch (group) {
-                    case 0:
-                        top = top  - verticalSpaceBetweenCards-cardHeight-(lane)*(cardSpacing);
-                        break;
-                    case 1:
-                        top = top + verticalSpaceBetweenCards + timelineHeight*timeHierarchyDepth+lane*(cardSpacing);
-                        break;
-                }
-
-                return `
-            left:${left}px;
-            top:${top}px;
-            height: ${cardHeight}px;
-            width: ${cardWidth}px;
-            background-color: ${d.color.hexCode};
-            color: ${contrastColor(d.color.hexCode)};
-            `;
-            });
+                    timeMarkerWidth / 2}px`
+            )
+            .style("top",(d) => `${calculateTop(d)}px`)
+            .style("height",(d) => `${cardHeight}px`)
+            .style("width",(d) => `${cardWidth}px`)
+            .style("background-color",(d) => `${d.color.hexCode}`)
+            .style("color",(d) => `${contrastColor(d.color.hexCode)}`);
 
             // render timeline
 
@@ -225,15 +184,11 @@ window.Spotfire.initialize(async (mod) => {
             .data([null])
             .join("div")
             .attr("class", "timeline")
-            .attr(
-                "style",
-                (d, i) => `
-                    left:${timeMarkermargin}px;
-                    top:${timeLineTop}px; 
-                    width:${timeLeaves.length * timeMarkerWidth+2}px;
-                    height:${timelineHeight*timeHierarchyDepth+2}px;
-                    `
-            );
+            .style("left",(d) => timeMarkermargin)
+            .style("top",(d) => timeLineTop) 
+            .style("width",(d) => timeLeaves.length * timeMarkerWidth+2)
+            .style("height",(d) => timelineHeight*timeHierarchyDepth+2)
+        
     
         let hierarchy: d3.HierarchyNode<DataViewHierarchyNode> = d3.hierarchy(hierarchyRoot);
         hierarchy.sum((d: DataViewHierarchyNode) => (!d?.children && 1) || 0);
@@ -261,20 +216,62 @@ window.Spotfire.initialize(async (mod) => {
             .classed("timeMarker-bottom",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.children == undefined)
             .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
             .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
-            .attr(
-                "style",
-                (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>, i) => `
-            left:${d.x0}px; 
-            width:${(d.x1-d.x0)-5}px;
-            top:${d.y0-timelineHeight}px;
-            height:${d.y1-d.y0}px;
-            `
-            );
-    
-            
-    
+            .style("left",(d) => d.x0) 
+            .style("width",(d) => d.x1-d.x0-5)
+            .style("top",(d) => d.y0-timelineHeight)
+            .style("height",(d) => d.y1-d.y0);
 
         context.signalRenderComplete();
+
+        function calcConnectorHeight(d: Card) {
+            let height = 0;
+
+            let group = d.verticalPosition % 2;
+            let lane = Math.floor(d.verticalPosition / 2);
+
+            switch (group) {
+                case 0:
+                    height = lane * cardSpacing+verticalSpaceBetweenCards;
+                    break;
+                case 1:
+                    height = verticalSpaceBetweenCards + lane * (cardSpacing) - 2;
+                    break;
+            }
+            return height;
+        }
+
+        function calcConnectorTop(d: Card) {
+            let top = timeLineTop;
+            let group = d.verticalPosition % 2;
+            let lane = Math.floor(d.verticalPosition / 2);
+    
+            switch (group) {
+                case 0:
+                    top = top - verticalSpaceBetweenCards- lane * (cardSpacing);
+                    break;
+                case 1:
+                    top = top + timelineHeight * timeHierarchyDepth + 2;
+                    break;
+            }
+            return top;
+        }
+            
+        function calculateTop(d: Card) {
+            let top = timeLineTop;
+    
+            let group = d.verticalPosition % 2;
+            let lane = Math.floor(d.verticalPosition / 2);
+
+            switch (group) {
+                case 0:
+                    top = top - verticalSpaceBetweenCards - cardHeight - (lane) * (cardSpacing);
+                    break;
+                case 1:
+                    top = top + verticalSpaceBetweenCards + timelineHeight * timeHierarchyDepth + lane * (cardSpacing);
+                    break;
+            }
+            return top;
+        }
     }
 });
 
