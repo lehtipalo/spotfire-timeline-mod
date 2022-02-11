@@ -39,6 +39,7 @@ window.Spotfire.initialize(async (mod) => {
     document.querySelector("#extra_styling")!.innerHTML = `
     .body { fill: ${context.styling.general.font.color}; font-size: ${context.styling.general.font.fontSize}px; font-weight: ${context.styling.general.font.fontWeight}; font-style: ${context.styling.general.font.fontStyle};}
     .timeMarker {border-color: ${context.styling.scales.line.stroke}} 
+    .timeline {border-color: ${context.styling.scales.line.stroke}} 
     .connector {background-color: ${context.styling.scales.line.stroke}}
     `;
 
@@ -208,8 +209,9 @@ window.Spotfire.initialize(async (mod) => {
             .join("div")
             .attr("class", "timeMarker")
             .classed("timeMarker-top-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == 0)
-            .classed("timeMarker-top-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x1 == timeLeaves.length*timeMarkerWidth && d.data.level == 0)
+            .classed("timeMarker-top-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => indexOfNode(d.data) == numberOfSiblings(d.data)-1 && d.data.level == 0)
             .classed("timeMarker-bottom-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == timeHierarchyDepth-1)
+            .classed("timeMarker-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
             .classed("timeMarker-right", (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth))
             .classed("timeMarker-bottom-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth) && d.data.level == timeHierarchyDepth-1)
             .classed("timeMarker-top",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
@@ -271,6 +273,18 @@ window.Spotfire.initialize(async (mod) => {
                     break;
             }
             return top;
+        }
+
+        function indexOfNode(node:DataViewHierarchyNode) {
+            let parent = node.parent;
+            if( parent) {
+                return parent.children?.indexOf(node) || -1;
+            }
+            return -1;
+        }
+
+        function numberOfSiblings(node:DataViewHierarchyNode) {
+            return node.parent?.children?.length || 0;
         }
     }
 });
