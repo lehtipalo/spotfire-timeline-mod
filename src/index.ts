@@ -208,14 +208,8 @@ window.Spotfire.initialize(async (mod) => {
             .data(displayHierarchy)
             .join("div")
             .attr("class", "timeMarker")
-            .classed("timeMarker-top-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == 0)
-            .classed("timeMarker-top-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => indexOfNode(d.data) == numberOfSiblings(d.data)-1 && d.data.level == 0)
-            .classed("timeMarker-bottom-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0 && d.data.level == timeHierarchyDepth-1)
             .classed("timeMarker-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
-            .classed("timeMarker-right", (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth))
-            .classed("timeMarker-bottom-right",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => Math.round(d.x1) == Math.round(timeLeaves.length*timeMarkerWidth) && d.data.level == timeHierarchyDepth-1)
             .classed("timeMarker-top",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
-            .classed("timeMarker-bottom",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.children == undefined)
             .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
             .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
             .style("left",(d) => d.x0) 
@@ -236,7 +230,7 @@ window.Spotfire.initialize(async (mod) => {
                     height = lane * cardSpacing+verticalSpaceBetweenCards;
                     break;
                 case 1:
-                    height = verticalSpaceBetweenCards + lane * (cardSpacing) - 2;
+                    height = verticalSpaceBetweenCards + lane * (cardSpacing) - 3;
                     break;
             }
             return height;
@@ -252,7 +246,7 @@ window.Spotfire.initialize(async (mod) => {
                     top = top - verticalSpaceBetweenCards- lane * (cardSpacing);
                     break;
                 case 1:
-                    top = top + timelineHeight * timeHierarchyDepth + 2;
+                    top = top + timelineHeight * timeHierarchyDepth + 3;
                     break;
             }
             return top;
@@ -273,18 +267,6 @@ window.Spotfire.initialize(async (mod) => {
                     break;
             }
             return top;
-        }
-
-        function indexOfNode(node:DataViewHierarchyNode) {
-            let parent = node.parent;
-            if( parent) {
-                return parent.children?.indexOf(node) || -1;
-            }
-            return -1;
-        }
-
-        function numberOfSiblings(node:DataViewHierarchyNode) {
-            return node.parent?.children?.length || 0;
         }
     }
 });
