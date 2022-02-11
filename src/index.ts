@@ -143,7 +143,7 @@ window.Spotfire.initialize(async (mod) => {
             .join("div")
             .attr("class", "connector")
             .style("left",(d) => `${timeMarkermargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`) 
-            .style("top",(d) => `${calcConnectorTop(d)}px`)
+            .style("top",(d) => `${calcConnectorTop(d.verticalPosition)}px`)
             .style("height",(d) => `${calcConnectorHeight(d)}px`);
 
         let cardContainer = modContainer
@@ -172,7 +172,7 @@ window.Spotfire.initialize(async (mod) => {
                     cardWidth / 2 +
                     timeMarkerWidth / 2}px`
             )
-            .style("top",(d) => `${calculateTop(d)}px`)
+            .style("top",(d) => `${calculateCardTop(d.verticalPosition)}px`)
             .style("height",(d) => `${cardHeight}px`)
             .style("width",(d) => `${cardWidth}px`)
             .style("background-color",(d) => `${d.color.hexCode}`)
@@ -236,14 +236,14 @@ window.Spotfire.initialize(async (mod) => {
             return height;
         }
 
-        function calcConnectorTop(d: Card) {
+        function calcConnectorTop(verticalPosition:number) {
             let top = timeLineTop;
-            let group = d.verticalPosition % 2;
-            let lane = Math.floor(d.verticalPosition / 2);
+            let group = verticalPosition % 2;
+            let lane = Math.floor(verticalPosition / 2);
     
             switch (group) {
                 case 0:
-                    top = top - verticalSpaceBetweenCards- lane * (cardSpacing);
+                    top = top - verticalSpaceBetweenCards - lane * cardSpacing;
                     break;
                 case 1:
                     top = top + timelineHeight * timeHierarchyDepth + 3;
@@ -252,18 +252,17 @@ window.Spotfire.initialize(async (mod) => {
             return top;
         }
             
-        function calculateTop(d: Card) {
+        function calculateCardTop(verticalPosition:number) {
             let top = timeLineTop;
-    
-            let group = d.verticalPosition % 2;
-            let lane = Math.floor(d.verticalPosition / 2);
+            let group = verticalPosition % 2;
+            let lane = Math.floor(verticalPosition / 2);
 
             switch (group) {
                 case 0:
-                    top = top - verticalSpaceBetweenCards - cardHeight - (lane) * (cardSpacing);
+                    top = top - verticalSpaceBetweenCards - lane * cardSpacing - cardHeight ;
                     break;
                 case 1:
-                    top = top + verticalSpaceBetweenCards + timelineHeight * timeHierarchyDepth + lane * (cardSpacing);
+                    top = top + timelineHeight * timeHierarchyDepth + lane * cardSpacing + verticalSpaceBetweenCards;
                     break;
             }
             return top;
