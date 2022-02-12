@@ -23,7 +23,9 @@ const timeAxisName = "Time",
     rowsPerCard = 2,
     maxTimeSegments = 2000,
     scaleToFitHorizontally = false,
-    scaleToFitVertically = true;
+    scaleToFitVertically = true,
+     dragSensitivity = 6;
+
 
 /**
  * Set up drawing layers
@@ -39,7 +41,7 @@ const drawingLayer = modContainer.append("div").attr("id", "drawingLayer");
 
 // Layer 5: The marking overlay layer
 // @ts-ignore
-const markingOverlayRect = modContainer.append("div").attr("id", "markingOverlayRect").attr("class", "inactiveMarking");
+const markingOverlay = modContainer.append("div").attr("id", "").attr("class", "inactiveMarking");
 
 
 
@@ -71,6 +73,13 @@ window.Spotfire.initialize(async (mod) => {
     reader.subscribe(generalErrorHandler(mod)(onChange), (err) => {
         mod.controls.errorOverlay.show(err);
     });
+
+    let marking = false;
+    let mouseDown = false;
+    let markingX1 = 0; 
+    let markingX2 = 0;
+    let markingY1 = 0;
+    let markingY2 = 0; 
 
     async function onChange(dataView: DataView, windowSize: Spotfire.Size) {
 
@@ -148,9 +157,61 @@ window.Spotfire.initialize(async (mod) => {
          */
 
         drawingLayer
-            .on("click", (event: MouseEvent) => {
-                dataView.clearMarking();
+            .on("mousedown", (event:MouseEvent) => {
+                markingY1 = event.clientY;
+                markingX1 = event.clientX;
+                markingY2 = markingY1;
+                markingX2 = markingX2;
+                mouseDown = true; 
+            })
+            .on("mousemove",(event:MouseEvent) => {
+                markingX2 = event.clientX;
+                markingY2 = event.clientY;
+                if (mouseDown) {
+                    marking = Math.abs(markingX2-markingX1) > dragSensitivity && Math.abs(markingY2-markingY1) > dragSensitivity;
+                }
+                if (marking) {
+                    mouseDown = false; 
+                    markingX2 = event.clientX;
+                    markingY2 = event.clientY;
+                    markingOverlay
+                        .attr("class","activeMarking")
+                        .style("left",`${markingX2 > markingX1 ? markingX1:markingX2}`)
+                        .style("top",`${markingY2 > markingY1 ? markingY1:markingY2}`)
+                        .style("width",`${Math.abs(markingX2-markingX1)}`)
+                        .style("height",`${Math.abs(markingY2-markingY1)}`)
+                }
+            })
+            .on("mouseup", (event: MouseEvent) => {
+                mouseDown = false; 
+                if (marking) {
+                    markingOverlay
+                    .attr("class","inactiveMarking");
+                    marking = false; 
+                    cardContainer.selectAll<HTMLDivElement,Card>(".card")
+                        .each((c:Card) => {
+                            let cardTop = calculateCardTop(c.verticalPosition);
+                            let cardLeft = calculateCardLeft(c);
+                            let cardRight = cardLeft + cardWidth;
+                            let cardBottom = cardTop + cardHeight;
+
+                            let markingLeft = markingX1 < markingX2 ? markingX1 : markingX2;
+                            let markingTop = markingY1 < markingY2 ? markingY1 : markingY2;
+                            let markingRight = markingX1 < markingX2 ? markingX2 : markingX1;
+                            let markingBottom = markingY1 < markingY2 ? markingY2 : markingY1;
+                        
+                            if (intersect(cardLeft,cardTop,cardBottom,cardRight, markingLeft, markingTop,markingBottom, markingRight)) {
+                                c.row.mark(event.ctrlKey || event.metaKey ? "ToggleOrAdd" : "Replace");
+                            };
+                        })
+                } 
+                else {
+                    dataView.clearMarking();
+                } 
             });
+    
+        
+    
 
         /**
          * Display Cards
@@ -192,8 +253,33 @@ window.Spotfire.initialize(async (mod) => {
             .join("div")
             .attr("class", "card")
             .classed("card-marked",(d) => d.row.isMarked())
-            .on("click", (e,d) => {
-                d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+            .on("mouseup", (e,d) => {
+                mouseDown = false; 
+                if (marking) {
+                    markingOverlay
+                    .attr("class","inactiveMarking");
+                    marking = false; 
+                    cardContainer.selectAll<HTMLDivElement,Card>(".card")
+                        .each((c:Card) => {
+                            let cardTop = calculateCardTop(c.verticalPosition);
+                            let cardLeft = calculateCardLeft(c);
+                            let cardRight = cardLeft + cardWidth;
+                            let cardBottom = cardTop + cardHeight;
+
+                            let markingLeft = markingX1 < markingX2 ? markingX1 : markingX2;
+                            let markingTop = markingY1 < markingY2 ? markingY1 : markingY2;
+                            let markingRight = markingX1 < markingX2 ? markingX2 : markingX1;
+                            let markingBottom = markingY1 < markingY2 ? markingY2 : markingY1;
+                        
+                            if (intersect(cardLeft,cardTop,cardBottom,cardRight, markingLeft, markingTop,markingBottom, markingRight)) {
+                                c.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+                            };
+                        })
+                        
+                }
+                else {
+                    d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+                } 
                 e.stopPropagation();
             })
             .html((d) => {
@@ -203,10 +289,7 @@ window.Spotfire.initialize(async (mod) => {
                 return s;
             })
             .style("left",(d) => `${
-                    timeSegmentMargin +
-                    d.timePosition * timeMarkerWidth -
-                    cardWidth / 2 +
-                    timeMarkerWidth / 2}px`
+                    calculateCardLeft(d)}px`
             )
             .style("top",(d) => `${calculateCardTop(d.verticalPosition)}px`)
             .style("height",(d) => `${cardHeight}px`)
@@ -261,6 +344,13 @@ window.Spotfire.initialize(async (mod) => {
             .style("height",(d) => d.y1-d.y0);
 
         context.signalRenderComplete();
+
+        function calculateCardLeft(d: Card) {
+            return timeSegmentMargin +
+                d.timePosition * timeMarkerWidth -
+                cardWidth / 2 +
+                timeMarkerWidth / 2;
+        }
 
         function calcConnectorHeight(d: Card) {
             let height = 0;
@@ -370,6 +460,24 @@ export function generalErrorHandler<T extends (dataView: Spotfire.DataView, ...a
     };
 }
 
+function intersect(
+    left1:Number,
+    top1:Number,
+    bottom1:Number,
+    right1:Number,
+    left2:Number,
+    top2:Number,
+    bottom2:Number,
+    right2:Number) 
+    {
+        if (left1 > right2 || left2 > right1) {
+            return false;
+        }
+        if (top1 > bottom2 || top2 > bottom1) {
+            return false;
+        }                 
+        return true; 
+    }
 function contrastColor(hexCode: string): string {
     let L = getLuminance(hexCode);
 

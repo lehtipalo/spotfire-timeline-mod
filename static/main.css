@@ -9,48 +9,21 @@
     opacity: 0.0;
 }
 
-.selection {
-    visibility: hidden;
-    pointer-events: none;
-    position: absolute;
-    border: 1px solid #677085;
-    background-color: rgba(0, 90, 230, 0.17);
-    width: 0;
-    height: 0;
-    top: 0;
-    left: 0;
-}
-
-.selection-bg {
-    visibility: hidden;
-    position: absolute;
-    background-color: rgba(200, 90, 230, 0);
-    top: 0;
-    left: 0;
-    bottom: 0;
-    right: 0;
-}
-
 .inactiveMarking {
     background-color: cornflowerblue;
     border: black;
     opacity: 0;
     pointer-events: none;
-}
+    position:absolute;
+}   
 
 .activeMarking {
-    background-color: cornflowerblue;
-    border: black;
-    opacity: 0.5;
+    background-color: #3760db36;
+    border: #797b85;
+    border-width: 1px;
+    border-style: solid;
     pointer-events: none;
-}
-
-.enabled {
-    visibility: visible;
-}
-
-.disabled {
-    visibility: hidden;
+    position:absolute;
 }
 
 #drawingLayer  {
@@ -82,6 +55,9 @@
     overflow: hidden;
     border-right:none;
     border-bottom:none;
+    user-select: none;
+    -webkit-user-drag: none;
+    
 }
 
 .timeMarker-top {
@@ -99,6 +75,8 @@
 
 .card {
     text-overflow: ellipsis;
+    user-select: none;
+    -webkit-user-drag: none;
     padding: 2px;
     margin: 0px;
     border-radius: 4px;
