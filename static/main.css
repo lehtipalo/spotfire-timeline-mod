@@ -4,6 +4,61 @@
     overflow: auto;
 }
 
+#interactionLayer {
+    background-color: rgb(180, 172, 172);
+    opacity: 0.0;
+}
+
+.selection {
+    visibility: hidden;
+    pointer-events: none;
+    position: absolute;
+    border: 1px solid #677085;
+    background-color: rgba(0, 90, 230, 0.17);
+    width: 0;
+    height: 0;
+    top: 0;
+    left: 0;
+}
+
+.selection-bg {
+    visibility: hidden;
+    position: absolute;
+    background-color: rgba(200, 90, 230, 0);
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+}
+
+.inactiveMarking {
+    background-color: cornflowerblue;
+    border: black;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.activeMarking {
+    background-color: cornflowerblue;
+    border: black;
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.enabled {
+    visibility: visible;
+}
+
+.disabled {
+    visibility: hidden;
+}
+
+#drawingLayer  {
+    height: 100%;
+    width: 100%;
+    overflow: auto;
+}
+
 .timeline {
     border: solid 1px;
     border-radius: 4px;
@@ -20,7 +75,6 @@
     padding-left: 5px;
     line-height: 25px;
     vertical-align: middle;
-    font-size: 12px;
     text-align: left;
     cursor: default;
     text-overflow: ellipsis;
@@ -45,12 +99,11 @@
 
 .card {
     text-overflow: ellipsis;
-    padding: 0px;
+    padding: 2px;
     margin: 0px;
     border-radius: 4px;
     overflow: hidden;
     position: absolute;
-    font-family: Roboto, "Segoe UI", Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
     cursor: default;
     text-align: center;
     display: flex;

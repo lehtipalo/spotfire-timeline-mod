@@ -2,8 +2,6 @@ import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo } from 
 import { getLuminance } from "polished";
 import * as d3 from "d3";
 
-const DEBUG = false;
-
 interface Card {
     timePosition: number;
     verticalPosition: number;
@@ -13,20 +11,37 @@ interface Card {
     row: DataViewRow;
 };
 
+const DEBUG = false;
+
 /**
  * Constants
  */
 const timeAxisName = "Time",
     descriptionAxisName = "Event",
-    minimumTimeMarkerWidth = 43,
-    timeMarkermargin = 60,
-    timelineHeight = 25,
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
-    cardWidth = 150,
-    cardHeight = 50,
+    rowsPerCard = 2,
     maxTimeSegments = 2000,
-    scaleToFitHorizontally = false;
+    scaleToFitHorizontally = false,
+    scaleToFitVertically = true;
+
+/**
+ * Set up drawing layers
+ */
+const modContainer = d3.select("#mod-container");
+
+// Layer 2: The interaction layer
+// @ts-ignore
+const interactionLayer = modContainer.append("div").attr("id", "interactionLayer")
+
+// Layer 3: The drawing layer
+const drawingLayer = modContainer.append("div").attr("id", "drawingLayer");
+
+// Layer 5: The marking overlay layer
+// @ts-ignore
+const markingOverlayRect = modContainer.append("div").attr("id", "markingOverlayRect").attr("class", "inactiveMarking");
+
+
 
 window.Spotfire.initialize(async (mod) => {
     /**
@@ -35,7 +50,15 @@ window.Spotfire.initialize(async (mod) => {
      */
     const context = mod.getRenderContext();
 
-    // adapt to canvas style
+    let fontSize = parseInt(context.styling.general.font.fontSize.toString()); // workaround bug in Spotfire 11.4 where fontSize returns string
+
+    let cardHeight = fontSize*rowsPerCard*1.5;
+    let timelineHeight = fontSize*2;
+    let minimumTimeSegmentWidth = fontSize*4.5;
+    let cardWidth = 2.8*minimumTimeSegmentWidth;
+    let timeSegmentMargin = cardWidth / 2;
+
+    // configfure styling
     document.querySelector("#extra_styling")!.innerHTML = `
     .body { fill: ${context.styling.general.font.color}; font-size: ${context.styling.general.font.fontSize}px; font-weight: ${context.styling.general.font.fontWeight}; font-style: ${context.styling.general.font.fontStyle};}
     .timeMarker {border-color: ${context.styling.scales.line.stroke}} 
@@ -49,22 +72,23 @@ window.Spotfire.initialize(async (mod) => {
         mod.controls.errorOverlay.show(err);
     });
 
-    const modContainer = d3.select("#mod-container");
-
     async function onChange(dataView: DataView, windowSize: Spotfire.Size) {
 
+        /**
+         * Get Data
+         */
         const hasTime = !!(await dataView.categoricalAxis(timeAxisName));
         const hasDescription = !!(await dataView.categoricalAxis(descriptionAxisName));
 
         if (!hasTime) {
-            modContainer.selectAll("*").remove();
+            drawingLayer.selectAll("*").remove();
             return;
         }
 
         let timeLeaves = (await (await dataView.hierarchy(timeAxisName))?.root())?.leaves() || [];
 
         if (timeLeaves.length > maxTimeSegments) {
-            modContainer.selectAll("*").remove();
+            drawingLayer.selectAll("*").remove();
             return;
         }
 
@@ -73,19 +97,17 @@ window.Spotfire.initialize(async (mod) => {
         let hierarchyRoot = await timeHierarchy?.root();
         if (!hierarchyRoot) return;
 
-        let timeMarketWidth = (windowSize.width - timeMarkermargin * 2) / timeLeaves.length;
-        let timeMarkerWidth = timeMarketWidth >= minimumTimeMarkerWidth || scaleToFitHorizontally ?  timeMarketWidth : minimumTimeMarkerWidth;
+        let timeMarketWidth = (windowSize.width - timeSegmentMargin * 2) / timeLeaves.length;
+        let timeMarkerWidth = timeMarketWidth >= minimumTimeSegmentWidth || scaleToFitHorizontally ?  timeMarketWidth : minimumTimeSegmentWidth;
         let timeSegmentsPerCard = Math.ceil((cardWidth+horizontalSpaceBetweenCards) / timeMarkerWidth);
 
         let timeLineTop = windowSize.height / 2 - timelineHeight*timeHierarchyDepth / 2;
-
-        // render cards
-
         
-        // spread out cards vertically to avoid overlap
+        /**
+         * Calculate Abstract Layout
+         */
     
         let cards:Card[] = [];
-
         let lastPosition = new Map();
         let maxStackedCards = 0;
 
@@ -121,44 +143,58 @@ window.Spotfire.initialize(async (mod) => {
 
         });
 
+        /**
+         * Enable rectangle selection
+         */
+
+        drawingLayer
+            .on("click", (event: MouseEvent) => {
+                dataView.clearMarking();
+            });
+
+        /**
+         * Display Cards
+         */
         let displayCards = cards.filter((card:Card) => card.description != "" && card.verticalPosition > -1 )
 
-        let cardSpacing = cardHeight + verticalSpaceBetweenCards;
-        let totalSpaceRequired = cardSpacing*(2*Math.ceil(maxStackedCards/2)) + timelineHeight*timeHierarchyDepth;
-        
-        cardSpacing = totalSpaceRequired < windowSize.height ? cardSpacing : (windowSize.height- timelineHeight*timeHierarchyDepth-cardHeight*2) / (2*Math.ceil(maxStackedCards/2));
+        let cardSpacing = cardHeight + 4 + verticalSpaceBetweenCards;
+        if (scaleToFitVertically) {
+            let totalSpaceRequired = cardSpacing*(2*Math.ceil(maxStackedCards/2)) + timelineHeight*timeHierarchyDepth;        
+            cardSpacing = totalSpaceRequired < windowSize.height ? cardSpacing : (windowSize.height- timelineHeight*timeHierarchyDepth-(cardHeight+4)*2) / (2*Math.ceil(maxStackedCards/2));
+        }
      
         // render connectors between the cards and the timeline
-         let key = (d: any) => d.row.elementId(true);       
-
-        let connectorContainer = modContainer
+    
+        let connectorContainer = drawingLayer
             .selectAll("#connectors")
             .data([null])
             .join("div")
             .attr("id", "connectors");
 
         connectorContainer
-            .selectAll(".connector")
-            .data(displayCards,key)
+            .selectAll<HTMLDivElement,Card>(".connector")
+            .data(displayCards,(d: Card) => d.row.elementId(true))
             .join("div")
             .attr("class", "connector")
-            .style("left",(d) => `${timeMarkermargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`) 
+            .style("left",(d) => `${timeSegmentMargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`) 
             .style("top",(d) => `${calcConnectorTop(d.verticalPosition)}px`)
             .style("height",(d) => `${calcConnectorHeight(d)}px`);
 
-        let cardContainer = modContainer
+        let cardContainer = drawingLayer
             .selectAll("#cards")
             .data([null])
             .join("div")
             .attr("id", "cards");
 
         cardContainer
-            .selectAll(".card")
-            .data(cards,key)
+            .selectAll<HTMLDivElement,Card>(".card")
+            .data(cards,(d: Card) => d.row.elementId(true))
             .join("div")
             .attr("class", "card")
-            .on("click", (e, d) => {
+            .classed("card-marked",(d) => d.row.isMarked())
+            .on("click", (e,d) => {
                 d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+                e.stopPropagation();
             })
             .html((d) => {
                 let s = `
@@ -167,7 +203,7 @@ window.Spotfire.initialize(async (mod) => {
                 return s;
             })
             .style("left",(d) => `${
-                    timeMarkermargin +
+                    timeSegmentMargin +
                     d.timePosition * timeMarkerWidth -
                     cardWidth / 2 +
                     timeMarkerWidth / 2}px`
@@ -178,14 +214,18 @@ window.Spotfire.initialize(async (mod) => {
             .style("background-color",(d) => `${d.color.hexCode}`)
             .style("color",(d) => `${contrastColor(d.color.hexCode)}`);
 
+            // marked cards on top
+            cardContainer.selectAll<HTMLDivElement,Card>(".card")
+                .filter((d:Card)=> d.row.isMarked()).raise();
+
             // render timeline
 
-            let timeline = modContainer
+            let timeline = drawingLayer
             .selectAll(".timeline")
             .data([null])
             .join("div")
             .attr("class", "timeline")
-            .style("left",(d) => timeMarkermargin)
+            .style("left",(d) => timeSegmentMargin)
             .style("top",(d) => timeLineTop) 
             .style("width",(d) => timeLeaves.length * timeMarkerWidth+2)
             .style("height",(d) => timelineHeight*timeHierarchyDepth+2)
@@ -210,7 +250,10 @@ window.Spotfire.initialize(async (mod) => {
             .attr("class", "timeMarker")
             .classed("timeMarker-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
             .classed("timeMarker-top",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
-            .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace"))
+            .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) =>{
+                d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace")
+                e.stopPropagation();
+            })
             .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
             .style("left",(d) => d.x0) 
             .style("width",(d) => d.x1-d.x0-5)
