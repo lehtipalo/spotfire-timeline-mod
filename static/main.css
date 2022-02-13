@@ -1,8 +1,13 @@
 
+body {
+    overflow-y:hidden;
+}
+
 #modcontainer {
     height: 100%;
     width: 100%;
-    overflow:auto;
+    overflow-x:auto;
+    overflow-y:hidden;
 }
 
 #interactionLayer {
@@ -16,6 +21,7 @@
     opacity: 0;
     pointer-events: none;
     position:absolute;
+    visibility: hidden;
 }   
 
 .activeMarking {
@@ -25,6 +31,7 @@
     border-style: solid;
     pointer-events: none;
     position:absolute;
+    visibility: visible;
 }
 
 #drawingLayer  {
