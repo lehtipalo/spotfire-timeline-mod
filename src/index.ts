@@ -53,8 +53,8 @@ window.Spotfire.initialize(async (mod) => {
 
     let cardHeight = fontSize*rowsPerCard*1.5;
     let timelineLevelHeight = fontSize*2;
-    let minimumTimeSegmentWidth = fontSize*4.5;
-    let cardWidth = 2.8*minimumTimeSegmentWidth;
+    let minimumTimeSegmentWidth = fontSize*4;
+    let cardWidth = 3.2*minimumTimeSegmentWidth;
     let timeSegmentMargin = cardWidth / 2;
 
     // configfure styling
@@ -161,7 +161,31 @@ window.Spotfire.initialize(async (mod) => {
             .style("top",`${0}`)
             .style("height",`${drawingAreaHeight}`)
             .style("width",`${drawingAreaWidth}`)
-            .on("mousedown",mouseDownHandler);
+            .on("mousedown",mouseDownHandler)
+            .on("dblclick",doubleclickHandler);
+
+        // Start/Stop automatic timeline scrolling with ctrl-key + doubleclick
+        let autoScroll = false; 
+        let autoScrollSpeed = 5;
+        function doubleclickHandler(event:MouseEvent) {
+            if (event.ctrlKey) {
+                if (!autoScroll) {          
+                    autoScroll = true;        
+                    scroll();
+                }
+                else {
+                   autoScroll = false; 
+                }
+            }
+        }
+
+        function scroll() {
+            let currentScroll = document.body.scrollLeft;
+            if (autoScroll && (currentScroll < timelineWidth-windowSize.width)) {
+                document.body.scrollLeft = currentScroll+1;
+                setTimeout(scroll,autoScrollSpeed);
+            }
+        }
     
         //  Connectors
 
