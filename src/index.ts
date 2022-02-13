@@ -154,7 +154,6 @@ window.Spotfire.initialize(async (mod) => {
         /**
          * Enable rectangle selection
          */
-
         
         const mouseMoveHandler = function (event:MouseEvent) {
             let scrollLeft = document.body.scrollLeft;
@@ -174,8 +173,8 @@ window.Spotfire.initialize(async (mod) => {
             markingOverlay
                 .attr("class","inactiveMarking");
 
-            cardContainer.selectAll<HTMLDivElement,Card>(".card")
-                .each((c:Card) => {
+           let selectedCards = cardContainer.selectAll<HTMLDivElement,Card>(".card")
+                .filter((c:Card) => {
                     let x1 = calculateCardLeft(c);
                     let y1 = calculateCardTop(c.verticalPosition)
                     let cardRect:Rect = {
@@ -192,11 +191,18 @@ window.Spotfire.initialize(async (mod) => {
                         [selection.y1,selection.y2] = [selection.y2,selection.y1];
                     }
                    
-                    if (intersect(cardRect, selection)) {
-                        c.row.mark(event.ctrlKey || event.metaKey ? "ToggleOrAdd" : "Replace");
-                    };
-                })
-
+                    return intersect(cardRect, selection);
+                       
+                    });
+            
+            if (selectedCards.size() > 0) {
+                selectedCards
+                .each((c:Card) => {
+                    c.row.mark(event.ctrlKey || event.metaKey ? "ToggleOrAdd" : "Replace");
+                    })
+                    event.stopPropagation();
+            } 
+                
             document.removeEventListener('mousemove',mouseMoveHandler);
             document.removeEventListener('mouseup',mouseUpHandler)
         };
@@ -254,6 +260,7 @@ window.Spotfire.initialize(async (mod) => {
             .data(cards,(d: Card) => d.row.elementId(true))
             .join("div")
             .attr("class", "card")
+            .attr("draggable","false")
             .classed("card-marked",(d) => d.row.isMarked())
             .on("click", (e,d) => {
                 d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
