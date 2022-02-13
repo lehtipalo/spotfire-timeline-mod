@@ -37,17 +37,8 @@ const timeAxisName = "Time",
  * Set up drawing layers
  */
 const modContainer = d3.select("#mod-container");
-
-// Layer 2: The interaction layer
-// @ts-ignore
-const interactionLayer = modContainer.append("div").attr("id", "interactionLayer")
-
-// Layer 3: The drawing layer
 const drawingLayer = modContainer.append("div").attr("id", "drawingLayer");
-
-// Layer 5: The marking overlay layer
-// @ts-ignore
-const markingOverlay = modContainer.append("div").attr("id", "").attr("class", "inactiveMarking");
+const markingOverlay = modContainer.append("div").attr("id", "markingOverlay").attr("class", "inactiveMarking");
 
 let selection:Rect = {x1:0, y1:0, x2:0, y2:0};
 
@@ -157,8 +148,9 @@ window.Spotfire.initialize(async (mod) => {
         
         const mouseMoveHandler = function (event:MouseEvent) {
             let scrollLeft = document.body.scrollLeft;
+            let scrollTop = document.body.scrollTop;
             selection.x2 = event.clientX+scrollLeft;
-            selection.y2 = event.clientY;
+            selection.y2 = event.clientY+scrollTop;
 
             markingOverlay
                 .attr("class","activeMarking")
@@ -201,6 +193,8 @@ window.Spotfire.initialize(async (mod) => {
                     c.row.mark(event.ctrlKey || event.metaKey ? "ToggleOrAdd" : "Replace");
                     })
                     event.stopPropagation();
+            } else {
+                dataView.clearMarking();
             } 
                 
             document.removeEventListener('mousemove',mouseMoveHandler);
@@ -209,17 +203,18 @@ window.Spotfire.initialize(async (mod) => {
 
         const mouseDownHandler = function (event:MouseEvent) {
             let scrollLeft = document.body.scrollLeft;
+            let scrollTop = document.body.scrollTop;
             selection = {
                 x1: event.clientX+scrollLeft,
-                y1: event.clientY,
+                y1: event.clientY+scrollTop,
                 x2: event.clientX+scrollLeft,
-                y2: event.clientY
+                y2: event.clientY+scrollTop
             }
             document.addEventListener('mousemove',mouseMoveHandler);
             document.addEventListener('mouseup',mouseUpHandler);
         }
 
-        document.addEventListener('mousedown',mouseDownHandler)
+        drawingLayer.on("mousedown",mouseDownHandler);
 
         /**
          * Display Cards
