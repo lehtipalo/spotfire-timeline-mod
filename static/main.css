@@ -16,17 +16,18 @@ body {
 }
 
 .inactiveMarking {
-    background-color: cornflowerblue;
-    border: black;
-    opacity: 0;
+    background-color:#8cb0e67f;
+    border: #19294999;
+    border-width: 1px;
+    border-style: solid;
     pointer-events: none;
     position:absolute;
     visibility: hidden;
 }   
 
 .activeMarking {
-    background-color: #3760db36;
-    border: #797b85;
+    background-color:#8cb0e67f;
+    border: #19294999;
     border-width: 1px;
     border-style: solid;
     pointer-events: none;
