@@ -1,5 +1,7 @@
-# Mod for TIBCO Spotfire®
-This is a minimal template for Spotfire Visualization Mods using typescript and webpack.
+# Timeline Mod for TIBCO Spotfire®
+The timeline can be used to show events on a timeline. Here's one example that shows all the Mods released between October 2020 and March 2021:
+
+![Mods Timeline](/images/Timeline.png)
 
 ## Try this mod in Spotfire Analyst
 
@@ -14,10 +16,24 @@ This is a minimal template for Spotfire Visualization Mods using typescript and 
 For general information on how to use and share visualization mods, [read the Spotfire documentation](https://docs.tibco.com/pub/sfire-analyst/11.0.0/doc/html/en-US/TIB_sfire-analyst_UsersGuide/index.htm?_ga=2.41319073.2072719993.1606728875-1950738096.1600074380#t=modvis%2Fmodvis_how_to_use_a_visualization_mod.htm).
 
 ## Data requirement
-There are no data requirements and the Mod does not display anything. 
+The timeline can be used to visulize any dataset that contains dates and descriptions. In order to make it work properly a data table with at least two columns is required: 
 
-## Setting up the mod
-No set up required
+- One date hierarchy. A column with actual dates works best, but any combination of categorical columns are supported. This determines the timeline. 
+- One description column. This determines what is written in the cards. 
+
+Optionally a third categorical column could be used to color the cards. 
+
+Every mod handles missing, corrupted and/or inconsistent data in different ways. It is advised to always review how the data is visualized.
+
+## Setting up the timeline
+Let's say we have data about some world events: 
+
+| Date         | Event | Impact |
+| -------------| ----- | -------|
+| Feb 11, 2021 | Something happened     | Medium   |
+| Feb 14, 2021 | Something else happened | Low    |
+| March 8, 2021 | Something worse happened | Low    |
+
 
 ## Building the mod
 
