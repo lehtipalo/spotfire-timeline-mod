@@ -34,6 +34,27 @@ Let's say we have data about some world events:
 | Feb 14, 2021 | Something else happened | Low    |
 | March 8, 2021 | Something worse happened | Low    |
 
+A basic timeline can be configured to show these events over time by creating a Timeline with the following settings: 
+
+- Time = Date: Year.Month.Day
+- Event = Event 
+
+Optionally you could also color the cards by another color, E.g. 
+
+- Color By = Impact
+
+The end result will look something like this: 
+
+![Mods Timeline](/images/Timeline 2.png)
+
+## Using the Timeline
+
+### Marking
+Clicking on an event will mark that event in the timeline and in all other visualizations that uses the same marking. Clicking or dragging in the empty space between events will clear the marking. You can mark several events by Ctrl-clicking on them. 
+
+Clicking and dragging allow you to select multiple events. 
+
+Clicking on a time segment will mark all events within that time segment. E.g. If your timeline shows Year > Month > Day, you can mark all events within a year by clicking on the year segment or for a particular month by clicking on month segments. You can mark several time segments by Ctrl-clicking on them. 
 
 ## Building the mod
 
