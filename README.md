@@ -45,7 +45,7 @@ Optionally you could also color the cards by another color, E.g.
 
 The end result will look something like this: 
 
-![Mods Timeline 2](/images/Timeline 2.png)
+![Mods Timeline 2](/images/Timeline2.png)
 
 ## Using the Timeline
 
