@@ -47,6 +47,18 @@ The end result will look something like this:
 
 ![Mods Timeline 2](/images/Timeline2.png)
 
+## Configuring the timeline
+
+### Time
+The time segments will be determined by the hierarchy on the time axis. 
+
+In the Spotfire Desktop the timeline will default to show the filtered range, meaning that it will include days regardless of whether or not there is an event for that day. This behavior can be changed in the time axis settings.  
+
+In the Spotfire Web Client the timeline will show all filtered values, meaning that it will skip days for which there is no event. 
+
+### Events
+The number of cards will be determined by the expression on the event axis and the color axis if categorical color is used. 
+
 ## Using the Timeline
 
 ### Marking
@@ -55,6 +67,14 @@ Clicking on an event will mark that event in the timeline and in all other visua
 Clicking and dragging allow you to select multiple events. 
 
 Clicking on a time segment will mark all events within that time segment. E.g. If your timeline shows Year > Month > Day, you can mark all events within a year by clicking on the year segment or for a particular month by clicking on month segments. You can mark several time segments by Ctrl-clicking on them. 
+
+### Adjusting the hierarchy
+If the timeline is configured to use a date hierarchy you can decide what level of the hierarchy to show by dragging the hierarchy slider. 
+
+### Horizontal Scrolling
+If the timeline is wider than the visualization area a scrollbar will be displayed at the bottom of the visualization. 
+
+The visualization will scroll right automatically if you double click on it while holding down ctrl. Clicking anywhere will stop the automatic scrolling. 
 
 ## Building the mod
 
