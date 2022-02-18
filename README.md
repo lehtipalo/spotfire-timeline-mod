@@ -59,6 +59,9 @@ In the Spotfire Web Client the timeline will show all filtered values, meaning t
 ### Events
 The number of cards will be determined by the expression on the event axis and the color axis if categorical color is used. 
 
+### Styling
+The visualization will respond to changes in the Spotfire canvas style. Label fonts, sizes and the color of lines are determined by visualization canvas settings. The size of cards and time segments will adjust to the selected font size. 
+
 ## Using the Timeline
 
 ### Marking
