@@ -9,13 +9,13 @@ interface Card {
     description: string;
     color: DataViewColorInfo;
     row: DataViewRow;
-};
+}
 
 interface Rect {
-    x1:number, 
-    y1:number, 
-    x2:number, 
-    y2:number;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
 }
 
 const DEBUG = false;
@@ -40,7 +40,7 @@ const cardContainer = drawingLayer.append("div").attr("id", "cards");
 const timeline = drawingLayer.append("div").attr("class", "timeline");
 const markingOverlay = modContainer.append("div").attr("id", "markingOverlay").attr("class", "inactiveMarking");
 
-let selection:Rect = {x1:0, y1:0, x2:0, y2:0};
+let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
 window.Spotfire.initialize(async (mod) => {
     /**
@@ -51,10 +51,10 @@ window.Spotfire.initialize(async (mod) => {
 
     let fontSize = parseInt(context.styling.general.font.fontSize.toString()); // workaround bug in Spotfire 11.4 where fontSize returns string
 
-    let cardHeight = fontSize*rowsPerCard*1.5;
-    let timelineLevelHeight = fontSize*2;
-    let minimumTimeSegmentWidth = fontSize*4;
-    let cardWidth = 3.2*minimumTimeSegmentWidth;
+    let cardHeight = fontSize * rowsPerCard * 1.5;
+    let timelineLevelHeight = fontSize * 2;
+    let minimumTimeSegmentWidth = fontSize * 4;
+    let cardWidth = 3.2 * minimumTimeSegmentWidth;
     let timeSegmentMargin = cardWidth / 2;
 
     // configfure styling
@@ -72,7 +72,6 @@ window.Spotfire.initialize(async (mod) => {
     });
 
     async function onChange(dataView: DataView, windowSize: Spotfire.Size) {
-
         /**
          * Get Data
          */
@@ -100,56 +99,53 @@ window.Spotfire.initialize(async (mod) => {
          * Calculate Layout
          */
         let timeMarkerWidth = (windowSize.width - timeSegmentMargin * 2) / timeLeaves.length;
-        timeMarkerWidth = timeMarkerWidth >= minimumTimeSegmentWidth ?  timeMarkerWidth : minimumTimeSegmentWidth;
-        const timeSegmentsPerCard = Math.ceil((cardWidth+horizontalSpaceBetweenCards) / timeMarkerWidth);
-        const timeLineTop = windowSize.height / 2 - timelineLevelHeight*timeHierarchyDepth / 2;
-        const drawingAreaHeight = windowSize.height-35;
-        const drawingAreaWidth = timeLeaves.length*timeMarkerWidth+timeSegmentMargin*2-10;
+        timeMarkerWidth = timeMarkerWidth >= minimumTimeSegmentWidth ? timeMarkerWidth : minimumTimeSegmentWidth;
+        const timeSegmentsPerCard = Math.ceil((cardWidth + horizontalSpaceBetweenCards) / timeMarkerWidth);
+        const timeLineTop = windowSize.height / 2 - (timelineLevelHeight * timeHierarchyDepth) / 2;
+        const drawingAreaHeight = windowSize.height - 35;
+        const drawingAreaWidth = timeLeaves.length * timeMarkerWidth + timeSegmentMargin * 2 - 10;
         const timelineWidth = timeLeaves.length * timeMarkerWidth;
         const timelineHeight = (timeHierarchyDepth + 1) * timelineLevelHeight;
-            
-        let cards:Card[] = [];
+
+        let cards: Card[] = [];
         let lastPosition = new Map();
         let maxStackedCards = 0;
 
-        timeLeaves.forEach((node:DataViewHierarchyNode) => {
-
-            node.rows().forEach((row:DataViewRow) => {
-
+        timeLeaves.forEach((node: DataViewHierarchyNode) => {
+            node.rows().forEach((row: DataViewRow) => {
                 if (row.categorical(descriptionAxisName).formattedValue() != "") {
-                    
                     let index = row.categorical(timeAxisName).leafIndex;
                     let vp = 0;
-        
-                    while (lastPosition.get(vp) != undefined && index-lastPosition.get(vp) < timeSegmentsPerCard) {
+
+                    while (lastPosition.get(vp) != undefined && index - lastPosition.get(vp) < timeSegmentsPerCard) {
                         vp++;
                     }
-                    lastPosition.set(vp,index)
-                    maxStackedCards = vp+1 > maxStackedCards ? vp+1 : maxStackedCards;
-    
-                    cards.push(
-                        {
+                    lastPosition.set(vp, index);
+                    maxStackedCards = vp + 1 > maxStackedCards ? vp + 1 : maxStackedCards;
+
+                    cards.push({
                         title: "",
-                        description:  hasDescription ? row.categorical(descriptionAxisName).formattedValue(): "",
+                        description: hasDescription ? row.categorical(descriptionAxisName).formattedValue() : "",
                         verticalPosition: vp,
                         timePosition: row.categorical(timeAxisName).leafIndex,
                         color: row.color(),
-                        row: row,
-                        }
-                    )
-                }    
-             }
-            )
-    
-
+                        row: row
+                    });
+                }
+            });
         });
 
-        let displayCards = cards.filter((card:Card) => card.description != "")
+        let displayCards = cards.filter((card: Card) => card.description != "");
 
         // Shuffle cards on top of each other to fit vertically
         let cardSpacing = cardHeight + 4 + verticalSpaceBetweenCards;
-        let totalSpaceRequired = cardSpacing*(2*Math.ceil(maxStackedCards/2)) + timelineLevelHeight*timeHierarchyDepth;        
-        cardSpacing = totalSpaceRequired < windowSize.height ? cardSpacing : (windowSize.height- timelineLevelHeight*timeHierarchyDepth-(cardHeight+4)*2) / (2*Math.ceil(maxStackedCards/2));
+        let totalSpaceRequired =
+            cardSpacing * (2 * Math.ceil(maxStackedCards / 2)) + timelineLevelHeight * timeHierarchyDepth;
+        cardSpacing =
+            totalSpaceRequired < windowSize.height
+                ? cardSpacing
+                : (windowSize.height - timelineLevelHeight * timeHierarchyDepth - (cardHeight + 4) * 2) /
+                  (2 * Math.ceil(maxStackedCards / 2));
 
         /**
          * Update DOM
@@ -157,86 +153,85 @@ window.Spotfire.initialize(async (mod) => {
 
         // Drawing Layer
         drawingLayer
-            .style("left",`${0}`)
-            .style("top",`${0}`)
-            .style("height",`${drawingAreaHeight}`)
-            .style("width",`${drawingAreaWidth}`)
-            .on("mousedown",mouseDownHandler)
-            .on("dblclick",doubleclickHandler);
+            .style("left", `${0}`)
+            .style("top", `${0}`)
+            .style("height", `${drawingAreaHeight}`)
+            .style("width", `${drawingAreaWidth}`)
+            .on("mousedown", mouseDownHandler)
+            .on("dblclick", doubleclickHandler);
 
-        // Start/Stop automatic timeline scrolling with ctrl-key + doubleclick
-        let autoScroll = false; 
+        // Start/Stop automatic timeline scrolling with ctrl-key or metakey + doubleclick
+        let autoScroll = false;
         let autoScrollSpeed = 5;
-        function doubleclickHandler(event:MouseEvent) {
-            if (event.ctrlKey) {
-                if (!autoScroll) {          
-                    autoScroll = true;        
+        function doubleclickHandler(event: MouseEvent) {
+            if (event.ctrlKey || event.metaKey) {
+                if (!autoScroll) {
+                    autoScroll = true;
                     scroll();
-                }
-                else {
-                   autoScroll = false; 
+                } else {
+                    autoScroll = false;
                 }
             }
         }
 
         function scroll() {
             let currentScroll = document.body.scrollLeft;
-            if (autoScroll && (currentScroll < timelineWidth-windowSize.width)) {
-                document.body.scrollLeft = currentScroll+1;
-                setTimeout(scroll,autoScrollSpeed);
+            if (autoScroll && currentScroll < timelineWidth - windowSize.width) {
+                document.body.scrollLeft = currentScroll + 1;
+                setTimeout(scroll, autoScrollSpeed);
             }
         }
-    
+
         //  Connectors
 
         connectorContainer
-            .selectAll<HTMLDivElement,Card>(".connector")
-            .data(displayCards,(d: Card) => d.row.elementId(true))
+            .selectAll<HTMLDivElement, Card>(".connector")
+            .data(displayCards, (d: Card) => d.row.elementId(true))
             .join("div")
             .attr("class", "connector")
-            .style("left",(d) => `${timeSegmentMargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`) 
-            .style("top",(d) => `${calcConnectorTop(d.verticalPosition)}px`)
-            .style("height",(d) => `${calcConnectorHeight(d)}px`);
+            .style("left", (d) => `${timeSegmentMargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`)
+            .style("top", (d) => `${calcConnectorTop(d.verticalPosition)}px`)
+            .style("height", (d) => `${calcConnectorHeight(d)}px`);
 
         // Cards
 
         cardContainer
-            .selectAll<HTMLDivElement,Card>(".card")
-            .data(cards,(d: Card) => d.row.elementId(true))
+            .selectAll<HTMLDivElement, Card>(".card")
+            .data(cards, (d: Card) => d.row.elementId(true))
             .join("div")
             .attr("class", "card")
-            .attr("draggable","false")
-            .classed("card-marked",(d) => d.row.isMarked())
-            .on("click", (e,d) => {
+            .attr("draggable", "false")
+            .classed("card-marked", (d) => d.row.isMarked())
+            .on("click", (e, d) => {
                 d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
                 e.stopPropagation();
             })
             .text((d) => `${d.description}`)
-            .style("left",(d:Card) => `${
-                    calculateCardLeft(d)}px`
-            )
-            .style("top",(d:Card) => `${calculateCardTop(d.verticalPosition)}px`)
-            .style("height",(d:Card) => `${cardHeight}px`)
-            .style("width",(d:Card) => `${cardWidth}px`)
-            .style("background-color",(d) => `${d.color.hexCode}`)
-            .style("color",(d:Card) => `${contrastColor(d.color.hexCode)}`);
+            .style("left", (d: Card) => `${calculateCardLeft(d)}px`)
+            .style("top", (d: Card) => `${calculateCardTop(d.verticalPosition)}px`)
+            .style("height", (d: Card) => `${cardHeight}px`)
+            .style("width", (d: Card) => `${cardWidth}px`)
+            .style("background-color", (d) => `${d.color.hexCode}`)
+            .style("color", (d: Card) => `${contrastColor(d.color.hexCode)}`);
 
-            // marked cards on top
-            cardContainer.selectAll<HTMLDivElement,Card>(".card")
-                .filter((d:Card)=> d.row.isMarked()).raise();
+        // marked cards on top
+        cardContainer
+            .selectAll<HTMLDivElement, Card>(".card")
+            .filter((d: Card) => d.row.isMarked())
+            .raise();
 
         // Timeline
 
         timeline
-            .style("left",(d) => timeSegmentMargin)
-            .style("top",(d) => timeLineTop) 
-            .style("width",(d) => timeLeaves.length * timeMarkerWidth+2)
-            .style("height",(d) => timelineLevelHeight*timeHierarchyDepth+2)
-           
+            .style("left", (d) => timeSegmentMargin)
+            .style("top", (d) => timeLineTop)
+            .style("width", (d) => timeLeaves.length * timeMarkerWidth + 2)
+            .style("height", (d) => timelineLevelHeight * timeHierarchyDepth + 2);
+
         // create a d3 hierarchy with the width of each timesegment proportional to the number of descendants
         let hierarchy: d3.HierarchyNode<DataViewHierarchyNode> = d3.hierarchy(hierarchyRoot);
         hierarchy.sum((d: DataViewHierarchyNode) => (!d?.children && 1) || 0);
-     
+
         let partition = d3.partition().size([timelineWidth, timelineHeight]).padding(0).round(false);
         let partitionedHierarchy: d3.HierarchyRectangularNode<DataViewHierarchyNode> = partition(
             hierarchy
@@ -246,109 +241,100 @@ window.Spotfire.initialize(async (mod) => {
         let displayHierarchy = partitionedHierarchy
             .descendants()
             .filter((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
-            
+
         timeline
             .selectAll(".timeMarker")
             .data(displayHierarchy)
             .join("div")
             .attr("class", "timeMarker")
-            .classed("timeMarker-left",(d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
-            .classed("timeMarker-top",(d:d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
-            .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) =>{
-                d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace")
+            .classed("timeMarker-left", (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
+            .classed("timeMarker-top", (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
+            .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => {
+                d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
                 e.stopPropagation();
             })
             .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
-            .style("left",(d) => d.x0) 
-            .style("width",(d) => d.x1-d.x0-5)
-            .style("top",(d) => d.y0-timelineLevelHeight)
-            .style("height",(d) => d.y1-d.y0);
+            .style("left", (d) => d.x0)
+            .style("width", (d) => d.x1 - d.x0 - 5)
+            .style("top", (d) => d.y0 - timelineLevelHeight)
+            .style("height", (d) => d.y1 - d.y0);
 
         context.signalRenderComplete();
-
 
         /**
          * Inline helper functions
          */
 
-        function mouseDownHandler(event:MouseEvent) {
-        let scrollLeft = document.body.scrollLeft;
-        let scrollTop = document.body.scrollTop;
-        selection = {
-            x1: event.clientX+scrollLeft,
-            y1: event.clientY+scrollTop,
-            x2: event.clientX+scrollLeft,
-            y2: event.clientY+scrollTop
-        }
-        document.addEventListener('mousemove',mouseMoveHandler);
-        document.addEventListener('mouseup',mouseUpHandler);
-    }
-
-        
-        function mouseMoveHandler(event:MouseEvent) {
+        function mouseDownHandler(event: MouseEvent) {
             let scrollLeft = document.body.scrollLeft;
             let scrollTop = document.body.scrollTop;
-            selection.x2 = event.clientX+scrollLeft;
-            selection.y2 = event.clientY+scrollTop;
+            selection = {
+                x1: event.clientX + scrollLeft,
+                y1: event.clientY + scrollTop,
+                x2: event.clientX + scrollLeft,
+                y2: event.clientY + scrollTop
+            };
+            document.addEventListener("mousemove", mouseMoveHandler);
+            document.addEventListener("mouseup", mouseUpHandler);
+        }
+
+        function mouseMoveHandler(event: MouseEvent) {
+            let scrollLeft = document.body.scrollLeft;
+            let scrollTop = document.body.scrollTop;
+            selection.x2 = event.clientX + scrollLeft;
+            selection.y2 = event.clientY + scrollTop;
 
             markingOverlay
-                .attr("class","activeMarking")
-                .style("left",`${selection.x2 > selection.x1 ? selection.x1:selection.x2}`)
-                .style("top",`${selection.y2 > selection.y1 ? selection.y1:selection.y2}`)
-                .style("width",`${Math.abs(selection.x2-selection.x1)}`)
-                .style("height",`${Math.abs(selection.y2-selection.y1)}`)
+                .attr("class", "activeMarking")
+                .style("left", `${selection.x2 > selection.x1 ? selection.x1 : selection.x2}`)
+                .style("top", `${selection.y2 > selection.y1 ? selection.y1 : selection.y2}`)
+                .style("width", `${Math.abs(selection.x2 - selection.x1)}`)
+                .style("height", `${Math.abs(selection.y2 - selection.y1)}`);
+        }
 
-        };
-
-        function mouseUpHandler(event:MouseEvent) {
+        function mouseUpHandler(event: MouseEvent) {
             markingOverlay
-                .style("left",`${0}`)
-                .style("top",`${0}`)
-                .style("width",`${0}`)
-                .style("height",`${0}`)
-                .attr("class","inactiveMarking");
+                .style("left", `${0}`)
+                .style("top", `${0}`)
+                .style("width", `${0}`)
+                .style("height", `${0}`)
+                .attr("class", "inactiveMarking");
 
-            let selectedCards = cardContainer.selectAll<HTMLDivElement,Card>(".card")
-                .filter((c:Card) => {
-                    let x1 = calculateCardLeft(c);
-                    let y1 = calculateCardTop(c.verticalPosition)
-                    let cardRect:Rect = {
-                        x1:x1,
-                        y1:y1,
-                        x2:x1 + cardWidth,
-                        y2:y1 + cardHeight
-                    }
-                
-                    if (selection.x1 > selection.x2) {
-                        [selection.x1,selection.x2] = [selection.x2,selection.x1];
-                    }
-                    if (selection.y1 > selection.y2) {
-                        [selection.y1,selection.y2] = [selection.y2,selection.y1];
-                    }
-                    
-                    return intersect(cardRect, selection);
-                        
-                    });
-            
+            let selectedCards = cardContainer.selectAll<HTMLDivElement, Card>(".card").filter((c: Card) => {
+                let x1 = calculateCardLeft(c);
+                let y1 = calculateCardTop(c.verticalPosition);
+                let cardRect: Rect = {
+                    x1: x1,
+                    y1: y1,
+                    x2: x1 + cardWidth,
+                    y2: y1 + cardHeight
+                };
+
+                if (selection.x1 > selection.x2) {
+                    [selection.x1, selection.x2] = [selection.x2, selection.x1];
+                }
+                if (selection.y1 > selection.y2) {
+                    [selection.y1, selection.y2] = [selection.y2, selection.y1];
+                }
+
+                return intersect(cardRect, selection);
+            });
+
             if (selectedCards.size() > 0) {
-                selectedCards
-                .each((c:Card) => {
+                selectedCards.each((c: Card) => {
                     c.row.mark(event.ctrlKey || event.metaKey ? "ToggleOrAdd" : "Replace");
-                    })
-                    event.stopPropagation();
+                });
+                event.stopPropagation();
             } else {
                 dataView.clearMarking();
-            } 
-                
-            document.removeEventListener('mousemove',mouseMoveHandler);
-            document.removeEventListener('mouseup',mouseUpHandler)
-        };
+            }
+
+            document.removeEventListener("mousemove", mouseMoveHandler);
+            document.removeEventListener("mouseup", mouseUpHandler);
+        }
 
         function calculateCardLeft(d: Card) {
-            return timeSegmentMargin +
-                d.timePosition * timeMarkerWidth -
-                cardWidth / 2 +
-                timeMarkerWidth / 2;
+            return timeSegmentMargin + d.timePosition * timeMarkerWidth - cardWidth / 2 + timeMarkerWidth / 2;
         }
 
         function calcConnectorHeight(d: Card) {
@@ -359,20 +345,20 @@ window.Spotfire.initialize(async (mod) => {
 
             switch (group) {
                 case 0:
-                    height = lane * cardSpacing+verticalSpaceBetweenCards;
+                    height = lane * cardSpacing + verticalSpaceBetweenCards;
                     break;
                 case 1:
-                    height = verticalSpaceBetweenCards + lane * (cardSpacing) - 3;
+                    height = verticalSpaceBetweenCards + lane * cardSpacing - 3;
                     break;
             }
             return height;
         }
 
-        function calcConnectorTop(verticalPosition:number) {
+        function calcConnectorTop(verticalPosition: number) {
             let top = timeLineTop;
             let group = verticalPosition % 2;
             let lane = Math.floor(verticalPosition / 2);
-    
+
             switch (group) {
                 case 0:
                     top = top - verticalSpaceBetweenCards - lane * cardSpacing;
@@ -383,18 +369,19 @@ window.Spotfire.initialize(async (mod) => {
             }
             return top;
         }
-            
-        function calculateCardTop(verticalPosition:number) {
+
+        function calculateCardTop(verticalPosition: number) {
             let top = timeLineTop;
             let group = verticalPosition % 2;
             let lane = Math.floor(verticalPosition / 2);
 
             switch (group) {
                 case 0:
-                    top = top - verticalSpaceBetweenCards - lane * cardSpacing - cardHeight ;
+                    top = top - verticalSpaceBetweenCards - lane * cardSpacing - cardHeight;
                     break;
                 case 1:
-                    top = top + timelineLevelHeight * timeHierarchyDepth + lane * cardSpacing + verticalSpaceBetweenCards;
+                    top =
+                        top + timelineLevelHeight * timeHierarchyDepth + lane * cardSpacing + verticalSpaceBetweenCards;
                     break;
             }
             return top;
@@ -459,15 +446,14 @@ export function generalErrorHandler<T extends (dataView: Spotfire.DataView, ...a
     };
 }
 
-function intersect(first:Rect,second:Rect)
-{
+function intersect(first: Rect, second: Rect) {
     if (first.x1 > second.x2 || second.x1 > first.x2) {
         return false;
     }
     if (first.y1 > second.y2 || second.y1 > first.y2) {
         return false;
-    }                 
-    return true; 
+    }
+    return true;
 }
 
 function contrastColor(hexCode: string): string {

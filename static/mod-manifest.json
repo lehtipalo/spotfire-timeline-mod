@@ -1,9 +1,9 @@
 {
     "apiVersion": "1.2",
-    "version": "1.0",
+    "version": "1.0.1",
     "name": "Timeline",
-    "id":"sfire-mods-timeline",
-    "icon":"Timeline Icon 2.svg",
+    "id": "sfire-mods-timeline",
+    "icon": "Timeline Icon 2.svg",
     "dataViewDefinition": {
         "axes": [
             {
@@ -16,9 +16,8 @@
                 "mode": "categorical",
                 "placement": "left"
             }
-           
         ],
-        "colorAxis":{
+        "colorAxis": {
             "mode": "dual",
             "automaticConfiguration": {
                 "expressionHeuristics": "none"
@@ -28,9 +27,5 @@
     "legend": {
         "defaultVisibility": "hidden"
     },
-    "files": [
-        "index.html",
-        "main.css",
-        "bundle.js"
-    ]
+    "files": ["index.html", "main.css", "bundle.js"]
 }
