@@ -42,7 +42,7 @@ A basic timeline can be configured to show these events over time by creating a 
 -   Time = Date: Year.Month.Day
 -   Event = Event
 
-Optionally you could also color the cards by another color, E.g.
+Optionally you could also color the cards by another column, E.g.
 
 -   Color By = Sentiment
 
