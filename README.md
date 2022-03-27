@@ -31,11 +31,11 @@ Every mod handles missing, corrupted and/or inconsistent data in different ways.
 
 Let's say we have data about some world events:
 
-| Date          | Event                    | Impact |
-| ------------- | ------------------------ | ------ |
-| Feb 11, 2021  | Something happened       | Medium |
-| Feb 14, 2021  | Something else happened  | Low    |
-| March 8, 2021 | Something worse happened | Low    |
+| Date          | Event                    | Sentiment |
+| ------------- | ------------------------ | --------- |
+| Feb 11, 2021  | Something happened       | Neutral   |
+| Feb 14, 2021  | Something else happened  | Neutral   |
+| March 8, 2021 | Something bad happened   | Negative  |
 
 A basic timeline can be configured to show these events over time by creating a Timeline with the following settings:
 
@@ -44,7 +44,7 @@ A basic timeline can be configured to show these events over time by creating a 
 
 Optionally you could also color the cards by another color, E.g.
 
--   Color By = Impact
+-   Color By = Sentiment
 
 The end result will look something like this:
 
