@@ -121,8 +121,9 @@ The development version of bundle.js is uncompressed and not suitable for end us
 
 ### 1.0.0
 
--   First versio
+-   First version.
 
 ### 1.0.1
 
 -   Command-key + doubleclick now starts and stop auto-scroll on Mac
+-   Fixed issue that caused auto-scroll to speed up and become unstoppabel when repeatedly double-clicking on a card.

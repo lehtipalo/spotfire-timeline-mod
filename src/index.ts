@@ -56,6 +56,8 @@ window.Spotfire.initialize(async (mod) => {
     let minimumTimeSegmentWidth = fontSize * 4;
     let cardWidth = 3.2 * minimumTimeSegmentWidth;
     let timeSegmentMargin = cardWidth / 2;
+    let autoScroll = false;
+    let autoScrollSpeed = 5;
 
     // configfure styling
     document.querySelector("#extra_styling")!.innerHTML = `
@@ -161,8 +163,7 @@ window.Spotfire.initialize(async (mod) => {
             .on("dblclick", doubleclickHandler);
 
         // Start/Stop automatic timeline scrolling with ctrl-key or metakey + doubleclick
-        let autoScroll = false;
-        let autoScrollSpeed = 5;
+
         function doubleclickHandler(event: MouseEvent) {
             if (event.ctrlKey || event.metaKey) {
                 if (!autoScroll) {
