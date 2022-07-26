@@ -1,6 +1,6 @@
 {
     "name": "sfire-mods-timeline",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "description": "Visualize events on a timeline in Spotfire",
     "main": "index.js",
     "scripts": {

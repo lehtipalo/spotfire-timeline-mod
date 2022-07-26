@@ -31,11 +31,11 @@ Every mod handles missing, corrupted and/or inconsistent data in different ways.
 
 Let's say we have data about some world events:
 
-| Date          | Event                    | Sentiment |
-| ------------- | ------------------------ | --------- |
-| Feb 11, 2021  | Something happened       | Neutral   |
-| Feb 14, 2021  | Something else happened  | Neutral   |
-| March 8, 2021 | Something bad happened   | Negative  |
+| Date          | Event                   | Sentiment |
+| ------------- | ----------------------- | --------- |
+| Feb 11, 2021  | Something happened      | Neutral   |
+| Feb 14, 2021  | Something else happened | Neutral   |
+| March 8, 2021 | Something bad happened  | Negative  |
 
 A basic timeline can be configured to show these events over time by creating a Timeline with the following settings:
 
@@ -127,3 +127,7 @@ The development version of bundle.js is uncompressed and not suitable for end us
 
 -   Command-key + doubleclick now starts and stop auto-scroll on Mac
 -   Fixed issue that caused auto-scroll to speed up and become unstoppabel when repeatedly double-clicking on a card.
+
+### 1.0.2
+
+-   Fixed issue that caused an error after attempting to display too many rows.
