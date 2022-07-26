@@ -225,6 +225,7 @@ window.Spotfire.initialize(async (mod) => {
             .attr("class", "timeline");
         let markingOverlay = modContainer
             .select("#markingOverlay")
+            .data([null])
             .join("div")
             .attr("id", "markingOverlay")
             .attr("class", "inactiveMarking");
