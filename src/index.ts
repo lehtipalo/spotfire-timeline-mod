@@ -124,11 +124,6 @@ window.Spotfire.initialize(async (mod) => {
 
         let hasEventAxis = !!(await dataView.categoricalAxis(eventAxisName));
 
-        if (!hasEventAxis) {
-            bailout(`Select an event axis`);
-            return;
-        }
-
         /**
          * Get Data
          */
@@ -172,7 +167,7 @@ window.Spotfire.initialize(async (mod) => {
 
         timeLeaves.forEach((node: DataViewHierarchyNode) => {
             node.rows().forEach((row: DataViewRow) => {
-                if (row.categorical(eventAxisName).formattedValue() != "") {
+                if (hasEventAxis && row.categorical(eventAxisName).formattedValue() != "") {
                     let index = row.categorical(timeAxisName).leafIndex;
                     let vp = 0;
 
@@ -184,7 +179,7 @@ window.Spotfire.initialize(async (mod) => {
 
                     cards.push({
                         title: "",
-                        description: row.categorical(eventAxisName).formattedValue(),
+                        description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
                         verticalPosition: vp,
                         timePosition: row.categorical(timeAxisName).leafIndex,
                         color: row.color(),
