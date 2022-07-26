@@ -18,27 +18,21 @@ interface Rect {
     y2: number;
 }
 
-const DEBUG = false;
-
 /**
  * Constants
  */
 const timeAxisName = "Time",
-    descriptionAxisName = "Event",
+    eventAxisName = "Event",
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
     rowsPerCard = 2,
-    maxTimeSegments = 2000;
+    maxTimeSegments = 2000,
+    maxRowCount = 2000;
 
 /**
  * Set up drawing layers
  */
 const modContainer = d3.select("#mod-container");
-const drawingLayer = modContainer.append("div").attr("id", "drawingLayer");
-const connectorContainer = drawingLayer.append("div").attr("id", "connectors");
-const cardContainer = drawingLayer.append("div").attr("id", "cards");
-const timeline = drawingLayer.append("div").attr("class", "timeline");
-const markingOverlay = modContainer.append("div").attr("id", "markingOverlay").attr("class", "inactiveMarking");
 
 let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
@@ -69,30 +63,93 @@ window.Spotfire.initialize(async (mod) => {
 
     const reader = mod.createReader(mod.visualization.data(), mod.windowSize());
 
-    reader.subscribe(generalErrorHandler(mod)(onChange), (err) => {
-        mod.controls.errorOverlay.show(err);
-    });
+    reader.subscribe(render);
 
-    async function onChange(dataView: DataView, windowSize: Spotfire.Size) {
+    /**
+     * Clears the DOM.
+     */
+    function clear() {
+        modContainer.selectAll("*").remove();
+    }
+
+    /**
+     * Function used in bailout clauses in main rendering function. Optionally shows message(s)
+     * to the user.
+     */
+    function bailout(messages?: string) {
+        clear();
+
+        if (messages) {
+            mod.controls.errorOverlay.show(messages);
+        } else {
+            mod.controls.errorOverlay.hide();
+        }
+    }
+
+    async function render(dataView: DataView, windowSize: Spotfire.Size) {
+        /**
+         * Check the data view for errors
+         */
+        let errors = await dataView.getErrors();
+        if (errors.length > 0) {
+            // Showing an error overlay will hide the mod iframe.
+            // Clear the mod content here to avoid flickering effect of
+            // an old configuration when next valid data view is received.
+            mod.controls.errorOverlay.show(errors);
+            return;
+        }
+        mod.controls.errorOverlay.hide();
+
+        const rowCount = (await dataView.rowCount()) || 0;
+
+        // Bailout for empty visualization
+        if (rowCount === 0) {
+            bailout();
+            return;
+        }
+
+        // Bailout if there is more data than we can gracefully render.
+        if (rowCount > maxRowCount) {
+            bailout(`Sorry. There is currently too much data. This visualization cannot handle more than ${maxRowCount} rows,
+            and there are currently ${rowCount} of them. Try filtering or change the configuration.`);
+            return;
+        }
+
+        let hasTimeAxisa = !!(await dataView.categoricalAxis(timeAxisName));
+
+        if (!hasTimeAxisa) {
+            bailout(`Select a time axis`);
+            return;
+        }
+
+        let hasEventAxis = !!(await dataView.categoricalAxis(eventAxisName));
+
+        if (!hasEventAxis) {
+            bailout(`Select an event axis`);
+            return;
+        }
+
         /**
          * Get Data
          */
-        const hasTime = !!(await dataView.categoricalAxis(timeAxisName));
-        const hasDescription = !!(await dataView.categoricalAxis(descriptionAxisName));
-
-        if (!hasTime) {
-            drawingLayer.selectAll("*").remove();
-            return;
-        }
-
-        let timeLeaves = (await (await dataView.hierarchy(timeAxisName))?.root())?.leaves() || [];
-
-        if (timeLeaves.length > maxTimeSegments) {
-            drawingLayer.selectAll("*").remove();
-            return;
-        }
 
         let timeHierarchy = await dataView.hierarchy(timeAxisName);
+        let timeHiearchyRoot = await timeHierarchy?.root();
+
+        if (timeHiearchyRoot == null) {
+            // User interaction caused the data view to expire.
+            // Don't clear the mod content here to avoid flickering.
+            return;
+        }
+
+        let timeLeaves = timeHiearchyRoot.leaves();
+
+        if (timeLeaves.length > maxTimeSegments) {
+            bailout(`Sorry. There is currently too many time segments. This visualization cannot handle more than ${maxTimeSegments} time segments,
+            and there are currently ${timeLeaves.length} of them. Try filtering or change the configuration.`);
+            return;
+        }
+
         let timeHierarchyDepth = timeHierarchy?.levels.length || 0;
         let hierarchyRoot = await timeHierarchy?.root();
         if (!hierarchyRoot) return;
@@ -115,7 +172,7 @@ window.Spotfire.initialize(async (mod) => {
 
         timeLeaves.forEach((node: DataViewHierarchyNode) => {
             node.rows().forEach((row: DataViewRow) => {
-                if (row.categorical(descriptionAxisName).formattedValue() != "") {
+                if (row.categorical(eventAxisName).formattedValue() != "") {
                     let index = row.categorical(timeAxisName).leafIndex;
                     let vp = 0;
 
@@ -127,7 +184,7 @@ window.Spotfire.initialize(async (mod) => {
 
                     cards.push({
                         title: "",
-                        description: hasDescription ? row.categorical(descriptionAxisName).formattedValue() : "",
+                        description: row.categorical(eventAxisName).formattedValue(),
                         verticalPosition: vp,
                         timePosition: row.categorical(timeAxisName).leafIndex,
                         color: row.color(),
@@ -152,6 +209,25 @@ window.Spotfire.initialize(async (mod) => {
         /**
          * Update DOM
          */
+
+        let drawingLayer = modContainer.selectAll("#drawingLayer").data([null]).join("div").attr("id", "drawingLayer");
+        let connectorContainer = drawingLayer
+            .selectAll("#connectors")
+            .data([null])
+            .join("div")
+            .attr("id", "connectors");
+        let cardContainer = drawingLayer.selectAll("#cards").data([null]).join("div").attr("id", "cards");
+        let timeline = drawingLayer
+            .selectAll("#timeline")
+            .data([null])
+            .join("div")
+            .attr("id", "timeline")
+            .attr("class", "timeline");
+        let markingOverlay = modContainer
+            .select("#markingOverlay")
+            .join("div")
+            .attr("id", "markingOverlay")
+            .attr("class", "inactiveMarking");
 
         // Drawing Layer
         drawingLayer
@@ -389,63 +465,6 @@ window.Spotfire.initialize(async (mod) => {
         }
     }
 });
-
-/**
- * subscribe callback wrapper with general error handling, row count check and an early return when the data has become invalid while fetching it.
- *
- * The only requirement is that the dataview is the first argument.
- * @param mod - The mod API, used to show error messages.
- * @param rowLimit - Optional row limit.
- */
-export function generalErrorHandler<T extends (dataView: Spotfire.DataView, ...args: any) => any>(
-    mod: Spotfire.Mod,
-    rowLimit = 2000
-): (a: T) => T {
-    return function (callback: T) {
-        return async function callbackWrapper(dataView: Spotfire.DataView, ...args: any) {
-            try {
-                const errors = await dataView.getErrors();
-                if (errors.length > 0) {
-                    mod.controls.errorOverlay.show(errors, "DataView");
-                    return;
-                }
-                mod.controls.errorOverlay.hide("DataView");
-
-                /**
-                 * Hard abort if row count exceeds an arbitrary selected limit
-                 */
-                const rowCount = await dataView.rowCount();
-                if (rowCount && rowCount > rowLimit) {
-                    mod.controls.errorOverlay.show(
-                        `☹️ Cannot render - too many rows (rowCount: ${rowCount}, limit: ${rowLimit}) `,
-                        "General"
-                    );
-                    return;
-                }
-
-                /**
-                 * User interaction while rows were fetched. Return early and respond to next subscribe callback.
-                 */
-                const allRows = await dataView.allRows();
-                if (allRows == null) {
-                    return;
-                }
-
-                await callback(dataView, ...args);
-
-                mod.controls.errorOverlay.hide("General");
-            } catch (e) {
-                if (e instanceof Error) {
-                    mod.controls.errorOverlay.show(e.message, "General");
-
-                    if (DEBUG) {
-                        throw e;
-                    }
-                }
-            }
-        } as T;
-    };
-}
 
 function intersect(first: Rect, second: Rect) {
     if (first.x1 > second.x2 || second.x1 > first.x2) {
