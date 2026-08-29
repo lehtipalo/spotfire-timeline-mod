@@ -1,6 +1,7 @@
 import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo } from "spotfire-api";
 import { getLuminance } from "polished";
-import * as d3 from "d3";
+import { select } from "d3-selection";
+import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
 
 interface Card {
     timePosition: number;
@@ -32,7 +33,7 @@ const timeAxisName = "Time",
 /**
  * Set up drawing layers
  */
-const modContainer = d3.select("#mod-container");
+const modContainer = select("#mod-container");
 
 let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
@@ -323,31 +324,34 @@ window.Spotfire.initialize(async (mod) => {
             .style("height", (d) => timelineLevelHeight * timeHierarchyDepth + 2);
 
         // create a d3 hierarchy with the width of each timesegment proportional to the number of descendants
-        let hierarchy: d3.HierarchyNode<DataViewHierarchyNode> = d3.hierarchy(hierarchyRoot);
-        hierarchy.sum((d: DataViewHierarchyNode) => (!d?.children && 1) || 0);
+        let hierarchyRootNode: HierarchyNode<DataViewHierarchyNode> = hierarchy(hierarchyRoot);
+        hierarchyRootNode.sum((d: DataViewHierarchyNode) => (!d?.children && 1) || 0);
 
-        let partition = d3.partition().size([timelineWidth, timelineHeight]).padding(0).round(false);
-        let partitionedHierarchy: d3.HierarchyRectangularNode<DataViewHierarchyNode> = partition(
-            hierarchy
-        ) as d3.HierarchyRectangularNode<DataViewHierarchyNode>;
+        let timelinePartition = partition<DataViewHierarchyNode>()
+            .size([timelineWidth, timelineHeight])
+            .padding(0)
+            .round(false);
+        let partitionedHierarchy: HierarchyRectangularNode<DataViewHierarchyNode> = timelinePartition(
+            hierarchyRootNode
+        ) as HierarchyRectangularNode<DataViewHierarchyNode>;
 
         // remove the root node from the displayed hierarchy
         let displayHierarchy = partitionedHierarchy
             .descendants()
-            .filter((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
+            .filter((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
 
         timeline
             .selectAll(".timeMarker")
             .data(displayHierarchy)
             .join("div")
             .attr("class", "timeMarker")
-            .classed("timeMarker-left", (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
-            .classed("timeMarker-top", (d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
-            .on("click", (e, d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => {
+            .classed("timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
+            .classed("timeMarker-top", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
+            .on("click", (e, d: HierarchyRectangularNode<DataViewHierarchyNode>) => {
                 d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
                 e.stopPropagation();
             })
-            .text((d: d3.HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
+            .text((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
             .style("left", (d) => d.x0)
             .style("width", (d) => d.x1 - d.x0 - 5)
             .style("top", (d) => d.y0 - timelineLevelHeight)
