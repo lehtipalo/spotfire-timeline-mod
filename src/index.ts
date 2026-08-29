@@ -36,6 +36,23 @@ const modContainer = d3.select("#mod-container");
 
 let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
+// Tracks the mousemove/mouseup listeners of an in-progress drag selection so a stale
+// drag from a previous render (with rows belonging to an already disposed DataView)
+// can be cancelled when a new render arrives before the user releases the mouse.
+let activeMouseMoveHandler: ((event: MouseEvent) => void) | null = null;
+let activeMouseUpHandler: ((event: MouseEvent) => void) | null = null;
+
+function detachDragHandlers() {
+    if (activeMouseMoveHandler) {
+        document.removeEventListener("mousemove", activeMouseMoveHandler);
+        activeMouseMoveHandler = null;
+    }
+    if (activeMouseUpHandler) {
+        document.removeEventListener("mouseup", activeMouseUpHandler);
+        activeMouseUpHandler = null;
+    }
+}
+
 window.Spotfire.initialize(async (mod) => {
     /**
      * Initialize render context - should show 'busy' cursor.
@@ -87,6 +104,10 @@ window.Spotfire.initialize(async (mod) => {
     }
 
     async function render(dataView: DataView, windowSize: Spotfire.Size) {
+        // Cancel any drag selection still in progress from a previous render - its listeners
+        // close over rows/DataView from that render, which may now be disposed.
+        detachDragHandlers();
+
         /**
          * Check the data view for errors
          */
@@ -347,8 +368,10 @@ window.Spotfire.initialize(async (mod) => {
                 x2: event.clientX + scrollLeft,
                 y2: event.clientY + scrollTop
             };
-            document.addEventListener("mousemove", mouseMoveHandler);
-            document.addEventListener("mouseup", mouseUpHandler);
+            activeMouseMoveHandler = mouseMoveHandler;
+            activeMouseUpHandler = mouseUpHandler;
+            document.addEventListener("mousemove", activeMouseMoveHandler);
+            document.addEventListener("mouseup", activeMouseUpHandler);
         }
 
         function mouseMoveHandler(event: MouseEvent) {
@@ -402,8 +425,7 @@ window.Spotfire.initialize(async (mod) => {
                 dataView.clearMarking();
             }
 
-            document.removeEventListener("mousemove", mouseMoveHandler);
-            document.removeEventListener("mouseup", mouseUpHandler);
+            detachDragHandlers();
         }
 
         function calculateCardLeft(d: Card) {
