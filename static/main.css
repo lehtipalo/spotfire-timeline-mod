@@ -82,8 +82,6 @@ body {
     box-sizing: border-box;
     border-radius: 4px;
     cursor: default;
-    top: 50%;
-    transform: translateY(-50%);
 }
 
 .timeline {
@@ -123,6 +121,17 @@ body {
     border-left:none;
 }
 
+.timeMarker-vertical {
+    /* Same single-line centering trick as .timeMarker's line-height:25px, but rotated:
+       in vertical-rl, line-height governs the line's thickness along the (horizontal)
+       inline-progression axis rather than vertical space, so it centers the label within
+       the marker's narrow width instead of its height. */
+    writing-mode: vertical-rl;
+    line-height: 25px;
+    padding-left: 0;
+    padding-top: 5px;
+}
+
 .timeMarker-marked {
     background-color: #EEEEEE;
 }
@@ -154,5 +163,25 @@ body {
 .connector {
     background-color: lightgray;
     position: absolute;
-    width: 2px;
+}
+
+#settingsButton {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    box-sizing: border-box;
+    border: solid 1px;
+    border-radius: 4px;
+    cursor: default;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+#settingsButton svg {
+    width: 16px;
+    height: 16px;
 }

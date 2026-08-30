@@ -1,20 +1,26 @@
 import { Selection, BaseType } from "d3-selection";
+import type { Orientation } from "./index";
 
 /**
- * A horizontal scrollbar (left/right buttons, draggable handle, wheel support) styled to
- * match the Spotfire canvas theme. Values are item indices (e.g. time segments), not pixels.
+ * A scrollbar (start/end buttons, draggable handle, wheel support) styled to match the
+ * Spotfire canvas theme, supporting both horizontal and vertical orientation. Values are
+ * item indices (e.g. time segments), not pixels.
  *
- * Vertical layout is left to CSS rather than hand-computed pixel offsets: #scrollBar is a
- * flex container that centers the buttons (and, via flex, the arrow triangles inside them)
- * automatically, and the handle - a plain rectangle, so the standard trick applies exactly -
- * uses "top: 50%; transform: translateY(-50%)" in main.css.
+ * All internal geometry (trackStart/End, handleExtent, handlePos, pointer coordinates) is
+ * expressed along a single "track axis" - trackLength/thickness resolve that axis to width/
+ * height (or vice versa) once in update(), and pointerCoord() resolves it to clientX/clientY,
+ * so the rest of the module never branches on orientation itself.
  *
- * Handle position and handle width are deliberately computed independently of each other:
- * width is sized proportionally to extent/totalItems (clamped to a visible minimum), and
+ * The buttons/arrows keep their "Left"/"Right" DOM ids and CSS classes regardless of
+ * orientation - they mean "track-start"/"track-end", not a screen direction - since in
+ * vertical mode the start button points up and the end button points down.
+ *
+ * Handle position and handle extent are deliberately computed independently of each other:
+ * extent is sized proportionally to extent/totalItems (clamped to a visible minimum), and
  * position is a direct linear mapping of value in [0, maxValue] onto the handle's actual
- * available travel (track width minus whatever width it ended up with). An earlier version
+ * available travel (track length minus whatever extent it ended up with). An earlier version
  * used a single d3 scale for both, which silently broke - dragging couldn't reach maxValue -
- * whenever the minimum-width clamp made the handle wider than its "natural" proportional
+ * whenever the minimum-extent clamp made the handle bigger than its "natural" proportional
  * size, because the scale's domain no longer matched the handle's actual travel range.
  */
 export function scrollBarControl(context: Selection<BaseType, unknown, HTMLElement, any>) {
@@ -26,13 +32,16 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
     let left: number;
     let height: number;
     let width: number;
+    let orientation: Orientation;
+    let trackLength: number;
+    let thickness: number;
     let totalItems: number;
     let extent: number;
     let trackStart: number;
     let trackEnd: number;
-    let handleWidth: number;
-    let handleDragStartX: number;
-    let handleLeft: number;
+    let handleExtent: number;
+    let handleDragStart: number;
+    let handlePos: number;
     let valueChanged: (value: number) => void;
     let color: string;
     let background: string;
@@ -106,6 +115,7 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
         left: number;
         top: number;
         height: number;
+        orientation: Orientation;
         totalItems: number;
         value: number;
         maxValue: number;
@@ -115,33 +125,53 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
         scrollDistance: number;
         valueChanged: (value: number) => void;
     }) {
-        ({ width, left, top, height, totalItems, value, maxValue, extent, color, background, scrollDistance, valueChanged } =
-            options);
+        ({
+            width,
+            left,
+            top,
+            height,
+            orientation,
+            totalItems,
+            value,
+            maxValue,
+            extent,
+            color,
+            background,
+            scrollDistance,
+            valueChanged
+        } = options);
 
-        buttonSize = Math.max(8, height - 4);
+        trackLength = orientation === "horizontal" ? width : height;
+        thickness = orientation === "horizontal" ? height : width;
+
+        buttonSize = Math.max(8, thickness - 4);
         trackStart = buttonSize + 4;
-        trackEnd = width - buttonSize - 4;
+        trackEnd = trackLength - buttonSize - 4;
     }
 
-    // How far the handle's left edge is actually free to travel, given its own width.
+    // How far the handle's leading edge is actually free to travel, given its own extent.
     function travelDistance() {
-        return Math.max(0, trackEnd - trackStart - handleWidth);
+        return Math.max(0, trackEnd - trackStart - handleExtent);
     }
 
-    function valueToHandleLeft(v: number) {
+    function valueToHandlePos(v: number) {
         if (maxValue <= 0) {
             return trackStart;
         }
         return trackStart + (v / maxValue) * travelDistance();
     }
 
-    function handleLeftToValue(hl: number) {
+    function handlePosToValue(hp: number) {
         let travel = travelDistance();
         if (travel <= 0) {
             return 0;
         }
-        let ratio = (hl - trackStart) / travel;
+        let ratio = (hp - trackStart) / travel;
         return Math.max(0, Math.min(maxValue, ratio * maxValue));
+    }
+
+    function pointerCoord(event: MouseEvent) {
+        return orientation === "horizontal" ? event.clientX : event.clientY;
     }
 
     function setValue(_value: number) {
@@ -150,50 +180,60 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
     }
 
     function render() {
+        let isHorizontal = orientation === "horizontal";
+
         scrollBar
             .style("width", `${width}px`)
             .style("height", `${height}px`)
             .style("left", `${left}px`)
             .style("top", `${top}px`)
+            .style("flex-direction", isHorizontal ? "row" : "column")
             .style("border-color", color)
             .style("background-color", background);
 
         let trackSpan = Math.max(0, trackEnd - trackStart);
-        let naturalWidth = totalItems > 0 ? trackSpan * (extent / totalItems) : trackSpan;
+        let naturalExtent = totalItems > 0 ? trackSpan * (extent / totalItems) : trackSpan;
         // Keep the handle draggable/visible even when there are many more items than fit
         // in the viewport at once, rather than letting it shrink to a near-invisible sliver.
-        handleWidth = Math.min(trackSpan, Math.max(buttonSize * 2, naturalWidth));
+        handleExtent = Math.min(trackSpan, Math.max(buttonSize * 2, naturalExtent));
 
-        handleLeft = valueToHandleLeft(value);
+        handlePos = valueToHandlePos(value);
 
+        let handleThickness = Math.max(6, thickness - 6);
         scrollBarHandle
-            .style("height", `${Math.max(6, height - 6)}px`)
             .style("background-color", color)
-            .style("width", `${handleWidth}px`)
-            .style("left", `${handleLeft}px`);
+            .style("width", `${isHorizontal ? handleExtent : handleThickness}px`)
+            .style("height", `${isHorizontal ? handleThickness : handleExtent}px`)
+            .style("left", `${isHorizontal ? handlePos : 0}px`)
+            .style("top", `${isHorizontal ? 0 : handlePos}px`)
+            .style("transform", isHorizontal ? "translateY(-50%)" : "translateX(-50%)")
+            // The offset axis is anchored at the track's cross-center; the transform above
+            // then re-centers the handle on that anchor along the same axis.
+            .style(isHorizontal ? "top" : "left", "50%");
 
         scrollBarButtonLeft.style("width", `${buttonSize}px`).style("height", `${buttonSize}px`);
 
         scrollBarButtonRight.style("width", `${buttonSize}px`).style("height", `${buttonSize}px`);
 
         // Scale the arrow triangles to the button size. A CSS border-triangle's rendered
-        // box (border-left-width + border-right-width by border-top-width + border-bottom-width)
-        // exactly equals its visible bounds, so the buttons' flex centering places it
-        // correctly with no extra positioning math needed here.
-        const arrowHalfHeight = Math.max(3, Math.round(buttonSize * 0.3));
-        const arrowWidth = Math.max(3, Math.round(buttonSize * 0.4));
+        // box (perpendicular pair by pointing-direction pair) exactly equals its visible
+        // bounds, so the buttons' flex centering places it correctly with no extra
+        // positioning math needed here. "Left"/"Right" mean track-start/track-end, not a
+        // screen direction - in vertical mode the start button points up, end points down.
+        const arrowHalfThickness = Math.max(3, Math.round(buttonSize * 0.3));
+        const arrowLength = Math.max(3, Math.round(buttonSize * 0.4));
 
         arrowLeft
-            .style("border-top", `${arrowHalfHeight}px solid transparent`)
-            .style("border-bottom", `${arrowHalfHeight}px solid transparent`)
-            .style("border-left", "0")
-            .style("border-right", `${arrowWidth}px solid ${color}`);
+            .style("border-top", isHorizontal ? `${arrowHalfThickness}px solid transparent` : "0")
+            .style("border-bottom", isHorizontal ? `${arrowHalfThickness}px solid transparent` : `${arrowLength}px solid ${color}`)
+            .style("border-left", isHorizontal ? "0" : `${arrowHalfThickness}px solid transparent`)
+            .style("border-right", isHorizontal ? `${arrowLength}px solid ${color}` : `${arrowHalfThickness}px solid transparent`);
 
         arrowRight
-            .style("border-top", `${arrowHalfHeight}px solid transparent`)
-            .style("border-bottom", `${arrowHalfHeight}px solid transparent`)
-            .style("border-right", "0")
-            .style("border-left", `${arrowWidth}px solid ${color}`);
+            .style("border-top", isHorizontal ? `${arrowHalfThickness}px solid transparent` : `${arrowLength}px solid ${color}`)
+            .style("border-bottom", isHorizontal ? `${arrowHalfThickness}px solid transparent` : "0")
+            .style("border-right", isHorizontal ? "0" : `${arrowHalfThickness}px solid transparent`)
+            .style("border-left", isHorizontal ? `${arrowLength}px solid ${color}` : `${arrowHalfThickness}px solid transparent`);
     }
 
     function hide() {
@@ -222,14 +262,15 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
     }
 
     function scrollBarMouseClick(event: MouseEvent) {
-        // Page by roughly one handle-width worth of value, like clicking the track on a
+        // Page by roughly one handle-extent worth of value, like clicking the track on a
         // native scrollbar.
         let travel = travelDistance();
-        let pageValue = travel > 0 ? (handleWidth / travel) * maxValue : maxValue;
+        let pageValue = travel > 0 ? (handleExtent / travel) * maxValue : maxValue;
+        let pointer = pointerCoord(event);
 
-        if (event.clientX < handleLeft) {
+        if (pointer < handlePos) {
             value = Math.max(0, value - pageValue);
-        } else if (event.clientX > handleLeft + handleWidth) {
+        } else if (pointer > handlePos + handleExtent) {
             value = Math.min(maxValue, value + pageValue);
         }
 
@@ -238,7 +279,8 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
     }
 
     function scrollBarMouseWheel(event: WheelEvent) {
-        let delta = event.deltaX || event.deltaY;
+        let delta =
+            orientation === "horizontal" ? event.deltaX || event.deltaY : event.deltaY || event.deltaX;
         let change = Math.round(delta / scrollDistance);
 
         value += change;
@@ -255,7 +297,7 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
 
     function scrollBarHandleMouseDown(event: MouseEvent) {
         handleDrag = true;
-        handleDragStartX = event.clientX;
+        handleDragStart = pointerCoord(event);
         event.stopPropagation();
         document.addEventListener("mouseup", scrollBarMouseUp);
         document.addEventListener("mousemove", scrollBarMouseMove);
@@ -278,15 +320,16 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
 
     function adjustScrollHandle(event: MouseEvent) {
         let travel = travelDistance();
-        handleLeft = handleLeft + (event.clientX - handleDragStartX);
-        if (handleLeft < trackStart) {
-            handleLeft = trackStart;
+        let pointer = pointerCoord(event);
+        handlePos = handlePos + (pointer - handleDragStart);
+        if (handlePos < trackStart) {
+            handlePos = trackStart;
         }
-        if (handleLeft > trackStart + travel) {
-            handleLeft = trackStart + travel;
+        if (handlePos > trackStart + travel) {
+            handlePos = trackStart + travel;
         }
-        handleDragStartX = event.clientX;
-        value = handleLeftToValue(handleLeft);
+        handleDragStart = pointer;
+        value = handlePosToValue(handlePos);
         render();
         valueChanged(value);
     }
