@@ -143,3 +143,7 @@ The development version of bundle.js is uncompressed and not suitable for end us
 ### 2.0.1
 
 -   Hovering a card that's partially hidden behind another now brings it to the front so it can be read, without disturbing which card is on top once you move the mouse away.
+
+### 2.0.2
+
+-   Hovering a card now shows a Spotfire tooltip with its date and full description, useful when the card's own text is too long to fit and gets truncated.
