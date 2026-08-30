@@ -35,6 +35,15 @@ The end result will look something like this:
 
 ## Configuring the timeline
 
+### Layout
+
+Hover over the visualization to reveal a settings button in the upper-right corner. Click it to switch between horizontal (the default) and vertical layout.
+
+- **Horizontal** — cards are stacked above and below a timeline that scrolls left and right.
+- **Vertical** — cards are stacked to the left and right of a timeline that scrolls up and down.
+
+The chosen layout is saved with the analysis.
+
 ### Time
 
 The time segments are determined by the hierarchy on the Time axis. Drag the hierarchy slider (see [Adjusting the hierarchy](#adjusting-the-hierarchy)) to drill from years all the way down to individual days, or back out again.
@@ -82,15 +91,15 @@ Hovering over a card that's partially hidden behind another also brings it to th
 
 If the timeline is configured with a date hierarchy, drag the hierarchy slider to decide what level to show — drill from years down to individual days, or zoom back out.
 
-### Horizontal scrolling
+### Scrolling
 
-If the timeline is wider than the visualization area, a scrollbar is available at the bottom. It's hidden by default and fades in while you hover over the visualization.
+If the timeline doesn't fit within the visualization area, a scrollbar is available along the edge it scrolls toward — the bottom in horizontal layout, the right in vertical layout (see [Layout](#layout)). It's hidden by default and fades in while you hover over the visualization.
 
 The scrollbar can be operated in several ways:
 
 - Drag the handle to scroll to a specific position.
-- Click the left or right arrow buttons to step by one time segment at a time.
-- Click on the track on either side of the handle to page by roughly one handle-width.
+- Click the arrow buttons at either end to step by one time segment at a time.
+- Click on the track on either side of the handle to page by roughly one handle-length.
 - Scroll the mouse wheel while hovering over the scrollbar.
 
 For a hands-free ride through the whole timeline, Ctrl+double-click (Cmd+double-click on Mac) to start automatic scrolling. Double-click again the same way, or click anywhere, to stop it.
