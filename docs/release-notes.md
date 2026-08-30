@@ -20,3 +20,6 @@
 -   Hovering a card now shows a Spotfire tooltip with its date and full description, useful when the card's own text is too long to fit and gets truncated.
 -   Added a vertical layout mode. Hover over the visualization to reveal a settings button for switching between horizontal and vertical layout - the choice is saved with the analysis.
 -   Fixed an issue where the outermost card in the stack could be cut off by the scrollbar.
+-   Added a card alignment option - pin cards to one side of the timeline (top/bottom in horizontal layout, left/right in vertical layout) instead of alternating them on both sides. Set it from the same settings button used for layout.
+-   You can now scroll the timeline with the mouse wheel anywhere over the visualization, not just while hovering over the scrollbar.
+-   Fixed an issue where a single crowded pocket of events could force compressed card spacing onto the entire timeline, causing avoidable overlap in otherwise sparse areas. Spacing is now calculated separately for each cluster of overlapping events.

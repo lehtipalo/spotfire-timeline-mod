@@ -37,12 +37,18 @@ The end result will look something like this:
 
 ### Layout
 
-Hover over the visualization to reveal a settings button in the upper-right corner. Click it to switch between horizontal (the default) and vertical layout.
+Hover over the visualization to reveal a settings button in the upper-right corner. Click it to choose an orientation and card alignment.
 
-- **Horizontal** — cards are stacked above and below a timeline that scrolls left and right.
+- **Horizontal** (the default) — cards are stacked above and below a timeline that scrolls left and right.
+  - **Top** — cards are pinned above the timeline.
+  - **Middle** — cards alternate above and below the timeline.
+  - **Bottom** — cards are pinned below the timeline.
 - **Vertical** — cards are stacked to the left and right of a timeline that scrolls up and down.
+  - **Left** — cards are pinned to the left of the timeline.
+  - **Middle** — cards alternate on both sides of the timeline.
+  - **Right** — cards are pinned to the right of the timeline.
 
-The chosen layout is saved with the analysis.
+The chosen orientation and alignment are saved with the analysis.
 
 ### Time
 
@@ -100,6 +106,6 @@ The scrollbar can be operated in several ways:
 - Drag the handle to scroll to a specific position.
 - Click the arrow buttons at either end to step by one time segment at a time.
 - Click on the track on either side of the handle to page by roughly one handle-length.
-- Scroll the mouse wheel while hovering over the scrollbar.
+- Scroll the mouse wheel anywhere over the visualization, not just the scrollbar.
 
 For a hands-free ride through the whole timeline, Ctrl+double-click (Cmd+double-click on Mac) to start automatic scrolling. Double-click again the same way, or click anywhere, to stop it.
