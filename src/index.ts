@@ -415,7 +415,8 @@ window.Spotfire.initialize(async (mod) => {
             .style(crossSizeProp, `${drawingAreaCrossSize}`)
             .style(alongSizeProp, `${mainSize}`)
             .on("mousedown", mouseDownHandler)
-            .on("dblclick", doubleclickHandler);
+            .on("dblclick", doubleclickHandler)
+            .on("wheel", (event: WheelEvent) => timelineScrollBar.handleWheel(event));
 
         scrollContent.style(crossSizeProp, `${drawingAreaCrossSize}`).style(alongSizeProp, `${drawingAreaAlongSize}`);
 
