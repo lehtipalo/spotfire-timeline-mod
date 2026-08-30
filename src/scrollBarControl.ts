@@ -262,10 +262,11 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
     }
 
     function scrollBarMouseClick(event: MouseEvent) {
-        // Page by roughly one handle-extent worth of value, like clicking the track on a
-        // native scrollbar.
-        let travel = travelDistance();
-        let pageValue = travel > 0 ? (handleExtent / travel) * maxValue : maxValue;
+        // Page by one viewport's worth of value (the visible extent), like clicking the
+        // track on a native scrollbar. Deriving this from handleExtent's pixel size would
+        // overshoot whenever the handle is clamped to its minimum visible size (see render()),
+        // since the clamped handle no longer represents extent/totalItems proportionally.
+        let pageValue = extent;
         let pointer = pointerCoord(event);
 
         if (pointer < handlePos) {
