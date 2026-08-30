@@ -151,6 +151,10 @@ window.Spotfire.initialize(async (mod) => {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
         detachDragHandlers();
+        // A hovered card's mouseleave won't fire if its element is removed from the DOM
+        // (a re-render can drop it if the underlying data changed) while the mouse never
+        // actually left it, which would otherwise leave a stale tooltip on screen.
+        mod.controls.tooltip.hide();
 
         /**
          * Check the data view for errors
@@ -418,6 +422,12 @@ window.Spotfire.initialize(async (mod) => {
                 .on("click", (e, d) => {
                     d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
                     e.stopPropagation();
+                })
+                .on("mouseenter", (e, d: Card) => {
+                    mod.controls.tooltip.show(`${d.row.categorical(timeAxisName).formattedValue()}\n${d.description}`);
+                })
+                .on("mouseleave", () => {
+                    mod.controls.tooltip.hide();
                 })
                 .text((d) => `${d.description}`)
                 .style("left", (d: Card) => `${calculateCardLeft(d)}px`)
