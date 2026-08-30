@@ -1,8 +1,9 @@
 # Timeline Mod for TIBCO Spotfire®
 
-The timeline can be used to show events on a timeline. Here's one example that shows all the Mods released between October 2020 and March 2021:
+Turn a list of dated events into a story you can scan at a glance.
 
 ![Mods Timeline](/images/Timeline.png)
+_All the Mods released between October 2020 and March 2021._
 
 # Try this visualization mod
 
@@ -20,7 +21,7 @@ To learn more about the capabilities and limitations of this visualization mod, 
 
 # Documentation
 
-For more information on data requirements, the available settings, and how to configure the mod, see the [user guide](docs/user-guide.md).
+For more on what the mod can do and how to use it, see the [user guide](docs/user-guide.md).
 
 For general information on how to use and share visualization mods, [read the Spotfire documentation](https://docs.tibco.com/pub/sfire-analyst/latest/doc/html/en-US/TIB_sfire_client/client/topics/en-US/visualization_mods.html).
 
