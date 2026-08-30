@@ -18,10 +18,6 @@ To use this mod, download it from Community Exchange.
 
 To learn more about the capabilities and limitations of this visualization mod, read its [user guide](docs/user-guide.md).
 
-# Data requirements
-
-For information on data requirements, the available settings, and how to set up the axes, see [Documentation](#documentation) below.
-
 # Documentation
 
 For more information on data requirements, the available settings, and how to configure the mod, see the [user guide](docs/user-guide.md).
