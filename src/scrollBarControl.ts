@@ -101,32 +101,22 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
         return handleDrag;
     }
 
-    function update(
-        _width: number,
-        _left: number,
-        _top: number,
-        _height: number,
-        _totalItems: number,
-        _value: number,
-        _maxValue: number,
-        _extent: number,
-        _color: string,
-        _background: string,
-        _scrollDistance: number,
-        _valueChanged: (value: number) => void
-    ) {
-        width = _width;
-        left = _left;
-        top = _top;
-        height = _height;
-        totalItems = _totalItems;
-        value = _value;
-        maxValue = _maxValue;
-        extent = _extent;
-        color = _color;
-        background = _background;
-        scrollDistance = _scrollDistance;
-        valueChanged = _valueChanged;
+    function update(options: {
+        width: number;
+        left: number;
+        top: number;
+        height: number;
+        totalItems: number;
+        value: number;
+        maxValue: number;
+        extent: number;
+        color: string;
+        background: string;
+        scrollDistance: number;
+        valueChanged: (value: number) => void;
+    }) {
+        ({ width, left, top, height, totalItems, value, maxValue, extent, color, background, scrollDistance, valueChanged } =
+            options);
 
         buttonSize = Math.max(8, height - 4);
         trackStart = buttonSize + 4;

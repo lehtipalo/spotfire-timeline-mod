@@ -6,7 +6,6 @@ import { scrollBarControl } from "./scrollBarControl";
 interface Card {
     timePosition: number;
     verticalPosition: number;
-    title: string;
     description: string;
     color: DataViewColorInfo;
     row: DataViewRow;
@@ -177,9 +176,9 @@ window.Spotfire.initialize(async (mod) => {
             return;
         }
 
-        let hasTimeAxisa = !!(await dataView.categoricalAxis(timeAxisName));
+        let hasTimeAxis = !!(await dataView.categoricalAxis(timeAxisName));
 
-        if (!hasTimeAxisa) {
+        if (!hasTimeAxis) {
             bailout(`Select a time axis`);
             return;
         }
@@ -191,19 +190,17 @@ window.Spotfire.initialize(async (mod) => {
          */
 
         let timeHierarchy = await dataView.hierarchy(timeAxisName);
-        let timeHiearchyRoot = await timeHierarchy?.root();
+        let timeHierarchyRoot = await timeHierarchy?.root();
 
-        if (timeHiearchyRoot == null) {
+        if (timeHierarchyRoot == null) {
             // User interaction caused the data view to expire.
             // Don't clear the mod content here to avoid flickering.
             return;
         }
 
-        let timeLeaves = timeHiearchyRoot.leaves();
+        let timeLeaves = timeHierarchyRoot.leaves();
 
         let timeHierarchyDepth = timeHierarchy?.levels.length || 0;
-        let hierarchyRoot = await timeHierarchy?.root();
-        if (!hierarchyRoot) return;
 
         /**
          * Calculate Layout
@@ -245,7 +242,6 @@ window.Spotfire.initialize(async (mod) => {
                     maxStackedCards = vp + 1 > maxStackedCards ? vp + 1 : maxStackedCards;
 
                     cards.push({
-                        title: "",
                         description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
                         verticalPosition: vp,
                         timePosition: row.categorical(timeAxisName).leafIndex,
@@ -255,8 +251,6 @@ window.Spotfire.initialize(async (mod) => {
                 }
             });
         });
-
-        let displayCards = cards.filter((card: Card) => card.description != "");
 
         // Shuffle cards on top of each other to fit vertically
         let cardSpacing = cardHeight + 4 + verticalSpaceBetweenCards;
@@ -325,7 +319,7 @@ window.Spotfire.initialize(async (mod) => {
             .style("height", (d) => timelineLevelHeight * timeHierarchyDepth + 2);
 
         // create a d3 hierarchy with the width of each timesegment proportional to the number of descendants
-        let hierarchyRootNode: HierarchyNode<DataViewHierarchyNode> = hierarchy(hierarchyRoot);
+        let hierarchyRootNode: HierarchyNode<DataViewHierarchyNode> = hierarchy(timeHierarchyRoot);
         hierarchyRootNode.sum((d: DataViewHierarchyNode) => (!d?.children && 1) || 0);
 
         let timelinePartition = partition<DataViewHierarchyNode>()
@@ -342,24 +336,24 @@ window.Spotfire.initialize(async (mod) => {
             .filter((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
 
         // Horizontal scrollbar
-        timelineScrollBar.update(
-            windowSize.width,
-            0,
-            windowSize.height - scrollBarHeight,
-            scrollBarHeight,
+        timelineScrollBar.update({
+            width: windowSize.width,
+            left: 0,
+            top: windowSize.height - scrollBarHeight,
+            height: scrollBarHeight,
             // Total content width in the same timeMarkerWidth-normalized units as scrollValue
             // (drawingAreaWidth / timeMarkerWidth) - used only for the handle's proportional
             // width (extent / totalItems), not for its position, so it's independent of
             // whatever that width ends up clamped to.
-            maxScrollValue + visibleTimeSegments,
-            scrollValue,
-            maxScrollValue,
-            visibleTimeSegments,
-            context.styling.scales.line.stroke,
-            context.styling.general.backgroundColor,
-            timeMarkerWidth,
-            onScrollValueChanged
-        );
+            totalItems: maxScrollValue + visibleTimeSegments,
+            value: scrollValue,
+            maxValue: maxScrollValue,
+            extent: visibleTimeSegments,
+            color: context.styling.scales.line.stroke,
+            background: context.styling.general.backgroundColor,
+            scrollDistance: timeMarkerWidth,
+            valueChanged: onScrollValueChanged
+        });
         updateScrollBarVisibility();
         timelineScrollBar.render();
         applyScrollTransform();
@@ -369,7 +363,7 @@ window.Spotfire.initialize(async (mod) => {
          * for the currently rendered window (viewport + an overscan buffer of one extra
          * screen on each side), not for the whole dataset. This is what makes it safe to
          * drop the old row/time-segment caps - the DOM node count stays bounded by the
-         * viewport width regardless of how much data is behind it. cards/displayCards and
+         * viewport width regardless of how much data is behind it. cards and
          * displayHierarchy themselves are still built from the full dataset every render
          * (needed for correct global card-stacking and proportional time-segment widths),
          * but that's cheap plain-object work, not DOM.
@@ -391,7 +385,7 @@ window.Spotfire.initialize(async (mod) => {
             renderedRangeStart = Math.max(0, viewportLeftPx - overscanPx);
             renderedRangeEnd = Math.min(drawingAreaWidth, viewportRightPx + overscanPx);
 
-            let visibleCards = displayCards.filter((c: Card) => {
+            let visibleCards = cards.filter((c: Card) => {
                 let x1 = calculateCardLeft(c);
                 return x1 + cardWidth >= renderedRangeStart && x1 <= renderedRangeEnd;
             });
@@ -552,6 +546,13 @@ window.Spotfire.initialize(async (mod) => {
             // scroll offset to compare against the viewport-space selection rect.
             let scrollOffsetPx = scrollValue * timeMarkerWidth;
 
+            if (selection.x1 > selection.x2) {
+                [selection.x1, selection.x2] = [selection.x2, selection.x1];
+            }
+            if (selection.y1 > selection.y2) {
+                [selection.y1, selection.y2] = [selection.y2, selection.y1];
+            }
+
             let selectedCards = cardContainer.selectAll<HTMLDivElement, Card>(".card").filter((c: Card) => {
                 let x1 = calculateCardLeft(c) - scrollOffsetPx;
                 let y1 = calculateCardTop(c.verticalPosition);
@@ -561,13 +562,6 @@ window.Spotfire.initialize(async (mod) => {
                     x2: x1 + cardWidth,
                     y2: y1 + cardHeight
                 };
-
-                if (selection.x1 > selection.x2) {
-                    [selection.x1, selection.x2] = [selection.x2, selection.x1];
-                }
-                if (selection.y1 > selection.y2) {
-                    [selection.y1, selection.y2] = [selection.y2, selection.y1];
-                }
 
                 return intersect(cardRect, selection);
             });
@@ -588,54 +582,48 @@ window.Spotfire.initialize(async (mod) => {
             return edgeMargin + d.timePosition * timeMarkerWidth - cardWidth / 2 + timeMarkerWidth / 2;
         }
 
-        function calcConnectorHeight(d: Card) {
-            let height = 0;
+        // Cards alternate between two groups - above the timeline (0) and below it (1) -
+        // and stack outward from the timeline in lanes within their group.
+        function laneInfo(verticalPosition: number) {
+            return { group: verticalPosition % 2, lane: Math.floor(verticalPosition / 2) };
+        }
 
-            let group = d.verticalPosition % 2;
-            let lane = Math.floor(d.verticalPosition / 2);
+        function calcConnectorHeight(d: Card) {
+            let { group, lane } = laneInfo(d.verticalPosition);
 
             switch (group) {
                 case 0:
-                    height = lane * cardSpacing + verticalSpaceBetweenCards;
-                    break;
+                    return lane * cardSpacing + verticalSpaceBetweenCards;
                 case 1:
-                    height = verticalSpaceBetweenCards + lane * cardSpacing - 3;
-                    break;
+                default:
+                    return verticalSpaceBetweenCards + lane * cardSpacing - 3;
             }
-            return height;
         }
 
         function calcConnectorTop(verticalPosition: number) {
-            let top = timeLineTop;
-            let group = verticalPosition % 2;
-            let lane = Math.floor(verticalPosition / 2);
+            let { group, lane } = laneInfo(verticalPosition);
 
             switch (group) {
                 case 0:
-                    top = top - verticalSpaceBetweenCards - lane * cardSpacing;
-                    break;
+                    return timeLineTop - verticalSpaceBetweenCards - lane * cardSpacing;
                 case 1:
-                    top = top + timelineLevelHeight * timeHierarchyDepth + 3;
-                    break;
+                default:
+                    return timeLineTop + timelineLevelHeight * timeHierarchyDepth + 3;
             }
-            return top;
         }
 
         function calculateCardTop(verticalPosition: number) {
-            let top = timeLineTop;
-            let group = verticalPosition % 2;
-            let lane = Math.floor(verticalPosition / 2);
+            let { group, lane } = laneInfo(verticalPosition);
 
             switch (group) {
                 case 0:
-                    top = top - verticalSpaceBetweenCards - lane * cardSpacing - cardHeight;
-                    break;
+                    return timeLineTop - verticalSpaceBetweenCards - lane * cardSpacing - cardHeight;
                 case 1:
-                    top =
-                        top + timelineLevelHeight * timeHierarchyDepth + lane * cardSpacing + verticalSpaceBetweenCards;
-                    break;
+                default:
+                    return (
+                        timeLineTop + timelineLevelHeight * timeHierarchyDepth + lane * cardSpacing + verticalSpaceBetweenCards
+                    );
             }
-            return top;
         }
     }
 });
