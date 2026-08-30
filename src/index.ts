@@ -1,7 +1,9 @@
-import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo } from "spotfire-api";
+import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo, ModProperty } from "spotfire-api";
 import { select } from "d3-selection";
 import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
 import { scrollBarControl } from "./scrollBarControl";
+
+export type Orientation = "horizontal" | "vertical";
 
 interface Card {
     timePosition: number;
@@ -27,6 +29,17 @@ const timeAxisName = "Time",
     horizontalSpaceBetweenCards = 12.5,
     rowsPerCard = 2,
     scrollBarHeight = 16;
+
+// stroke="currentColor" picks up #settingsButton's own `color` style via inheritance.
+const settingsIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+    <path d="M12 8a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+    <path d="M4 8l8 0" />
+    <path d="M16 8l4 0" />
+    <path d="M6 16a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+    <path d="M4 16l2 0" />
+    <path d="M10 16l10 0" />
+</svg>`;
 
 /**
  * Set up drawing layers
@@ -60,6 +73,11 @@ window.Spotfire.initialize(async (mod) => {
      */
     const context = mod.getRenderContext();
 
+    // The Mods API exposes only the (deliberately muted) scale-line color and the full-
+    // strength font color - neither matches the lighter tint the native toolbar icons use.
+    // Blending font color toward the background approximates that native chrome weight.
+    const uiChromeColor = `color-mix(in srgb, ${context.styling.general.font.color} 55%, ${context.styling.general.backgroundColor})`;
+
     let fontSize = parseInt(context.styling.general.font.fontSize.toString()); // workaround bug in Spotfire 11.4 where fontSize returns string
 
     let cardHeight = fontSize * rowsPerCard * 1.5;
@@ -92,9 +110,18 @@ window.Spotfire.initialize(async (mod) => {
         }
     }
 
+    // Unlike the scrollbar, the settings button shows on any hover, regardless of overflow.
+    function updateSettingsButtonVisibility() {
+        modContainer
+            .select("#settingsButton")
+            .style("opacity", isHovering ? "1" : "0")
+            .style("pointer-events", isHovering ? "auto" : "none");
+    }
+
     modContainer.on("mouseenter", () => {
         isHovering = true;
         updateScrollBarVisibility();
+        updateSettingsButtonVisibility();
     });
     modContainer.on("mouseleave", () => {
         isHovering = false;
@@ -103,33 +130,36 @@ window.Spotfire.initialize(async (mod) => {
         if (!timelineScrollBar.isHandleBeingDragged()) {
             updateScrollBarVisibility();
         }
+        updateSettingsButtonVisibility();
     });
 
     // configfure styling
     document.querySelector("#extra_styling")!.innerHTML = `
     .body { fill: ${context.styling.general.font.color}; font-size: ${context.styling.general.font.fontSize}px; font-weight: ${context.styling.general.font.fontWeight}; font-style: ${context.styling.general.font.fontStyle};}
-    .timeMarker {border-color: ${context.styling.scales.line.stroke}} 
-    .timeline {border-color: ${context.styling.scales.line.stroke}} 
+    .timeMarker {border-color: ${context.styling.scales.line.stroke}}
+    .timeline {border-color: ${context.styling.scales.line.stroke}}
     .connector {background-color: ${context.styling.scales.line.stroke}}
     `;
 
-    const reader = mod.createReader(mod.visualization.data(), mod.windowSize());
+    const reader = mod.createReader(mod.visualization.data(), mod.windowSize(), mod.property<string>("orientation"));
 
     reader.subscribe(render);
 
     /**
-     * Clears the DOM. Leaves the scrollbar's own DOM in place - it's created once
-     * (see scrollBarControl(modContainer) above) and its event handlers are bound to
-     * those specific nodes, so removing them here would leave it permanently broken.
+     * Clears the DOM. Leaves the scrollbar's and settings button's own DOM in place - they're
+     * each created once (see scrollBarControl(modContainer) above and the settingsButton join
+     * in render()) and their event handlers are bound to those specific nodes, so removing them
+     * here would leave them permanently broken.
      */
     function clear() {
         modContainer
             .selectAll<HTMLElement, unknown>(":scope > *")
             .filter(function () {
-                return this.id !== "scrollBar";
+                return this.id !== "scrollBar" && this.id !== "settingsButton";
             })
             .remove();
         timelineScrollBar.hide();
+        updateSettingsButtonVisibility();
     }
 
     /**
@@ -146,7 +176,7 @@ window.Spotfire.initialize(async (mod) => {
         }
     }
 
-    async function render(dataView: DataView, windowSize: Spotfire.Size) {
+    async function render(dataView: DataView, windowSize: Spotfire.Size, orientationProperty: ModProperty<string>) {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
         detachDragHandlers();
@@ -154,6 +184,17 @@ window.Spotfire.initialize(async (mod) => {
         // (a re-render can drop it if the underlying data changed) while the mouse never
         // actually left it, which would otherwise leave a stale tooltip on screen.
         mod.controls.tooltip.hide();
+
+        const orientation: Orientation = orientationProperty.value<string>() === "vertical" ? "vertical" : "horizontal";
+        const isHorizontal = orientation === "horizontal";
+        // The axis along which the timeline runs/scrolls, and the axis across which cards
+        // stack away from it - horizontal maps along->x/cross->y, vertical is the mirror.
+        const mainSize = isHorizontal ? windowSize.width : windowSize.height;
+        const crossSize = isHorizontal ? windowSize.height : windowSize.width;
+        const alongProp: "left" | "top" = isHorizontal ? "left" : "top";
+        const crossProp: "left" | "top" = isHorizontal ? "top" : "left";
+        const alongSizeProp: "width" | "height" = isHorizontal ? "width" : "height";
+        const crossSizeProp: "width" | "height" = isHorizontal ? "height" : "width";
 
         /**
          * Check the data view for errors
@@ -205,24 +246,35 @@ window.Spotfire.initialize(async (mod) => {
         /**
          * Calculate Layout
          */
-        let timeMarkerWidth = (windowSize.width - edgeMargin * 2) / timeLeaves.length;
-        timeMarkerWidth = timeMarkerWidth >= minimumTimeSegmentWidth ? timeMarkerWidth : minimumTimeSegmentWidth;
-        const timeSegmentsPerCard = Math.ceil((cardWidth + horizontalSpaceBetweenCards) / timeMarkerWidth);
-        const timeLineTop = windowSize.height / 2 - (timelineLevelHeight * timeHierarchyDepth) / 2;
-        const drawingAreaHeight = windowSize.height - 35;
-        const drawingAreaWidth = timeLeaves.length * timeMarkerWidth + edgeMargin * 2;
-        const timelineWidth = timeLeaves.length * timeMarkerWidth;
+        // The card's fixed rendered box (cardWidth x cardHeight) never rotates - text must
+        // stay upright in both modes - but which of its two dimensions plays the "along the
+        // timeline" role (spacing/collision) vs the "across/stacking" role swaps by orientation.
+        const alongCardExtent = isHorizontal ? cardWidth : cardHeight;
+        const crossCardExtent = isHorizontal ? cardHeight : cardWidth;
+        const alongSpaceBetweenCards = isHorizontal ? horizontalSpaceBetweenCards : verticalSpaceBetweenCards;
+        const crossSpaceBetweenCards = isHorizontal ? verticalSpaceBetweenCards : horizontalSpaceBetweenCards;
+
+        let timeSegmentSize = (mainSize - edgeMargin * 2) / timeLeaves.length;
+        timeSegmentSize = timeSegmentSize >= minimumTimeSegmentWidth ? timeSegmentSize : minimumTimeSegmentWidth;
+        const timeSegmentsPerCard = Math.ceil((alongCardExtent + alongSpaceBetweenCards) / timeSegmentSize);
+        const drawingAreaCrossSize = crossSize - 35;
+        // Centered within the actual visible (scrollbar-trimmed) drawing area, not the raw
+        // window - centering on crossSize would push the timeline (and everything stacked
+        // off it) 35px lower/righter than the clipped viewport actually has room for.
+        const timeLineCrossPos = drawingAreaCrossSize / 2 - (timelineLevelHeight * timeHierarchyDepth) / 2;
+        const drawingAreaAlongSize = timeLeaves.length * timeSegmentSize + edgeMargin * 2;
+        const timelineWidth = timeLeaves.length * timeSegmentSize;
         const timelineHeight = (timeHierarchyDepth + 1) * timelineLevelHeight;
 
-        // Horizontal scrolling: how many time segments fit in the viewport at once, and how
-        // far scrollValue (index of the leftmost visible segment) may go. This is bounded by
-        // the full content width (drawingAreaWidth), not just the timeline's own width - cards
-        // are much wider than a single time segment and spill into the edgeMargin reserved
-        // on each side, so scrolling only far enough to reveal the last *segment*
-        // would still leave the last *card* clipped at the viewport edge.
-        const visibleTimeSegments = windowSize.width / timeMarkerWidth;
-        const maxScrollValue = Math.max(0, (drawingAreaWidth - windowSize.width) / timeMarkerWidth);
-        needsScroll = drawingAreaWidth > windowSize.width;
+        // Scrolling along the timeline axis: how many time segments fit in the viewport at
+        // once, and how far scrollValue (index of the first visible segment) may go. This is
+        // bounded by the full content extent (drawingAreaAlongSize), not just the timeline's
+        // own extent - cards are much bigger than a single time segment along this axis and
+        // spill into the edgeMargin reserved on each side, so scrolling only far enough to
+        // reveal the last *segment* would still leave the last *card* clipped at the edge.
+        const visibleTimeSegments = mainSize / timeSegmentSize;
+        const maxScrollValue = Math.max(0, (drawingAreaAlongSize - mainSize) / timeSegmentSize);
+        needsScroll = drawingAreaAlongSize > mainSize;
         scrollValue = Math.min(scrollValue, maxScrollValue);
 
         let cards: Card[] = [];
@@ -252,14 +304,17 @@ window.Spotfire.initialize(async (mod) => {
             });
         });
 
-        // Shuffle cards on top of each other to fit vertically
-        let cardSpacing = cardHeight + 4 + verticalSpaceBetweenCards;
+        // Shuffle cards on top of each other to fit across the stacking axis, within the
+        // actual visible drawing area (drawingAreaCrossSize), not the raw window - fitting
+        // against crossSize would let the bottom/trailing-most row overflow into (and get
+        // clipped by) the 35px strip reserved for the scrollbar.
+        let cardSpacing = crossCardExtent + 4 + crossSpaceBetweenCards;
         let totalSpaceRequired =
             cardSpacing * (2 * Math.ceil(maxStackedCards / 2)) + timelineLevelHeight * timeHierarchyDepth;
         cardSpacing =
-            totalSpaceRequired < windowSize.height
+            totalSpaceRequired < drawingAreaCrossSize
                 ? cardSpacing
-                : (windowSize.height - timelineLevelHeight * timeHierarchyDepth - (cardHeight + 4) * 2) /
+                : (drawingAreaCrossSize - timelineLevelHeight * timeHierarchyDepth - (crossCardExtent + 4) * 2) /
                   (2 * Math.ceil(maxStackedCards / 2));
 
         /**
@@ -290,6 +345,60 @@ window.Spotfire.initialize(async (mod) => {
             .join("div")
             .attr("id", "markingOverlay")
             .attr("class", "inactiveMarking");
+        // In horizontal mode the scrollbar sits along the bottom, clear of the button's
+        // top-right corner. In vertical mode it occupies the whole right edge, so the button
+        // moves to sit just left of it, top-aligned with the scrollbar's own top (0).
+        const settingsButtonSize = 24;
+        const settingsButtonTop = isHorizontal ? 8 : 0;
+        const settingsButtonRight = isHorizontal ? 8 : scrollBarHeight + 8;
+
+        let settingsButton = modContainer
+            .selectAll("#settingsButton")
+            .data([null])
+            .join("div")
+            .attr("id", "settingsButton")
+            .style("top", `${settingsButtonTop}px`)
+            .style("right", `${settingsButtonRight}px`)
+            // Interactive UI chrome (unlike the muted scale-line color used for the
+            // timeline/connectors) should read like native Spotfire toolbar icons, so it
+            // uses the theme's primary foreground color rather than the gridline color.
+            .style("color", uiChromeColor)
+            .style("border-color", uiChromeColor)
+            .on("click", () => {
+                mod.controls.popout.show(
+                    {
+                        x: windowSize.width - settingsButtonRight - settingsButtonSize,
+                        y: settingsButtonTop + settingsButtonSize / 2,
+                        alignment: "Right",
+                        autoClose: true,
+                        onChange: (event) => {
+                            if (event.name === "orientation") {
+                                mod.property<string>("orientation").set(event.value);
+                            }
+                        }
+                    },
+                    () => [
+                        mod.controls.popout.section({
+                            children: [
+                                mod.controls.popout.components.radioButton({
+                                    name: "orientation",
+                                    text: "Horizontal",
+                                    checked: orientation === "horizontal",
+                                    value: "horizontal"
+                                }),
+                                mod.controls.popout.components.radioButton({
+                                    name: "orientation",
+                                    text: "Vertical",
+                                    checked: orientation === "vertical",
+                                    value: "vertical"
+                                })
+                            ]
+                        })
+                    ]
+                );
+            });
+        settingsButton.html(settingsIconSvg);
+        updateSettingsButtonVisibility();
 
         // #mod-container has no CSS height of its own - it auto-sizes to its normal-flow
         // content, which is just drawingLayer (shorter than windowSize.height). The
@@ -298,25 +407,25 @@ window.Spotfire.initialize(async (mod) => {
         // container it's meant to be part of. Size it explicitly to the full viewport.
         modContainer.style("width", `${windowSize.width}px`).style("height", `${windowSize.height}px`);
 
-        // Drawing Layer - fixed to the viewport width. scrollContent is the full (possibly
-        // wider) content that gets panned horizontally via a CSS transform.
+        // Drawing Layer - fixed to the viewport. scrollContent is the full (possibly larger)
+        // content that gets panned along the timeline axis via a CSS transform.
         drawingLayer
             .style("left", `${0}`)
             .style("top", `${0}`)
-            .style("height", `${drawingAreaHeight}`)
-            .style("width", `${windowSize.width}`)
+            .style(crossSizeProp, `${drawingAreaCrossSize}`)
+            .style(alongSizeProp, `${mainSize}`)
             .on("mousedown", mouseDownHandler)
             .on("dblclick", doubleclickHandler);
 
-        scrollContent.style("height", `${drawingAreaHeight}`).style("width", `${drawingAreaWidth}`);
+        scrollContent.style(crossSizeProp, `${drawingAreaCrossSize}`).style(alongSizeProp, `${drawingAreaAlongSize}`);
 
         // Timeline
 
         timeline
-            .style("left", (d) => edgeMargin)
-            .style("top", (d) => timeLineTop)
-            .style("width", (d) => timeLeaves.length * timeMarkerWidth + 2)
-            .style("height", (d) => timelineLevelHeight * timeHierarchyDepth + 2);
+            .style(alongProp, (d) => edgeMargin)
+            .style(crossProp, (d) => timeLineCrossPos)
+            .style(alongSizeProp, (d) => timeLeaves.length * timeSegmentSize + 2)
+            .style(crossSizeProp, (d) => timelineLevelHeight * timeHierarchyDepth + 2);
 
         // create a d3 hierarchy with the width of each timesegment proportional to the number of descendants
         let hierarchyRootNode: HierarchyNode<DataViewHierarchyNode> = hierarchy(timeHierarchyRoot);
@@ -335,23 +444,26 @@ window.Spotfire.initialize(async (mod) => {
             .descendants()
             .filter((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
 
-        // Horizontal scrollbar
+        // Scrollbar - a bottom strip in horizontal mode, a right strip in vertical mode
         timelineScrollBar.update({
-            width: windowSize.width,
-            left: 0,
-            top: windowSize.height - scrollBarHeight,
-            height: scrollBarHeight,
-            // Total content width in the same timeMarkerWidth-normalized units as scrollValue
-            // (drawingAreaWidth / timeMarkerWidth) - used only for the handle's proportional
-            // width (extent / totalItems), not for its position, so it's independent of
-            // whatever that width ends up clamped to.
+            width: isHorizontal ? mainSize : scrollBarHeight,
+            height: isHorizontal ? scrollBarHeight : mainSize,
+            left: isHorizontal ? 0 : crossSize - scrollBarHeight,
+            top: isHorizontal ? crossSize - scrollBarHeight : 0,
+            orientation,
+            // Total content extent in the same timeSegmentSize-normalized units as scrollValue
+            // (drawingAreaAlongSize / timeSegmentSize) - used only for the handle's proportional
+            // extent (extent / totalItems), not for its position, so it's independent of
+            // whatever that extent ends up clamped to.
             totalItems: maxScrollValue + visibleTimeSegments,
             value: scrollValue,
             maxValue: maxScrollValue,
             extent: visibleTimeSegments,
-            color: context.styling.scales.line.stroke,
+            // Same reasoning as the settings button above - interactive chrome uses the
+            // primary foreground color, not the muted scale-line color.
+            color: uiChromeColor,
             background: context.styling.general.backgroundColor,
-            scrollDistance: timeMarkerWidth,
+            scrollDistance: timeSegmentSize,
             valueChanged: onScrollValueChanged
         });
         updateScrollBarVisibility();
@@ -363,31 +475,31 @@ window.Spotfire.initialize(async (mod) => {
          * for the currently rendered window (viewport + an overscan buffer of one extra
          * screen on each side), not for the whole dataset. This is what makes it safe to
          * drop the old row/time-segment caps - the DOM node count stays bounded by the
-         * viewport width regardless of how much data is behind it. cards and
+         * viewport size regardless of how much data is behind it. cards and
          * displayHierarchy themselves are still built from the full dataset every render
-         * (needed for correct global card-stacking and proportional time-segment widths),
+         * (needed for correct global card-stacking and proportional time-segment sizes),
          * but that's cheap plain-object work, not DOM.
          */
         let renderedRangeStart = Infinity;
         let renderedRangeEnd = -Infinity;
 
         function renderVisibleWindow() {
-            let viewportLeftPx = scrollValue * timeMarkerWidth;
-            let viewportRightPx = viewportLeftPx + windowSize.width;
+            let viewportStartPx = scrollValue * timeSegmentSize;
+            let viewportEndPx = viewportStartPx + mainSize;
 
             // Already-rendered window (with its overscan buffer) still covers the viewport -
             // nothing new would come into view, so skip the rejoin entirely.
-            if (viewportLeftPx >= renderedRangeStart && viewportRightPx <= renderedRangeEnd) {
+            if (viewportStartPx >= renderedRangeStart && viewportEndPx <= renderedRangeEnd) {
                 return;
             }
 
-            let overscanPx = windowSize.width;
-            renderedRangeStart = Math.max(0, viewportLeftPx - overscanPx);
-            renderedRangeEnd = Math.min(drawingAreaWidth, viewportRightPx + overscanPx);
+            let overscanPx = mainSize;
+            renderedRangeStart = Math.max(0, viewportStartPx - overscanPx);
+            renderedRangeEnd = Math.min(drawingAreaAlongSize, viewportEndPx + overscanPx);
 
             let visibleCards = cards.filter((c: Card) => {
-                let x1 = calculateCardLeft(c);
-                return x1 + cardWidth >= renderedRangeStart && x1 <= renderedRangeEnd;
+                let alongPos = calculateCardAlongPos(c);
+                return alongPos + alongCardExtent >= renderedRangeStart && alongPos <= renderedRangeEnd;
             });
 
             // Connectors
@@ -397,12 +509,10 @@ window.Spotfire.initialize(async (mod) => {
                 .data(visibleCards, (d: Card) => d.row.elementId(true))
                 .join("div")
                 .attr("class", "connector")
-                .style(
-                    "left",
-                    (d) => `${edgeMargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`
-                )
-                .style("top", (d) => `${calcConnectorTop(d.verticalPosition)}px`)
-                .style("height", (d) => `${calcConnectorHeight(d)}px`);
+                .style(alongProp, (d) => `${edgeMargin + d.timePosition * timeSegmentSize + timeSegmentSize / 2}px`)
+                .style(alongSizeProp, "2px")
+                .style(crossProp, (d) => `${calcConnectorCrossPos(d.verticalPosition)}px`)
+                .style(crossSizeProp, (d) => `${calcConnectorCrossExtent(d)}px`);
 
             // Cards
 
@@ -424,10 +534,10 @@ window.Spotfire.initialize(async (mod) => {
                     mod.controls.tooltip.hide();
                 })
                 .text((d) => `${d.description}`)
-                .style("left", (d: Card) => `${calculateCardLeft(d)}px`)
-                .style("top", (d: Card) => `${calculateCardTop(d.verticalPosition)}px`)
-                .style("height", (d: Card) => `${cardHeight}px`)
-                .style("width", (d: Card) => `${cardWidth}px`)
+                .style(alongProp, (d: Card) => `${calculateCardAlongPos(d)}px`)
+                .style(crossProp, (d: Card) => `${calculateCardCrossPos(d.verticalPosition)}px`)
+                .style("height", `${cardHeight}px`)
+                .style("width", `${cardWidth}px`)
                 .style("background-color", (d) => `${d.color.hexCode}`)
                 .style("color", (d: Card) => `${contrastColor(d.color.hexCode)}`);
 
@@ -449,17 +559,22 @@ window.Spotfire.initialize(async (mod) => {
                 .data(visibleMarkers, (d) => d.data.formattedPath())
                 .join("div")
                 .attr("class", "timeMarker")
-                .classed("timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
-                .classed("timeMarker-top", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
+                .classed(isHorizontal ? "timeMarker-left" : "timeMarker-top", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
+                .classed(isHorizontal ? "timeMarker-top" : "timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
+                // The cross-axis band is only ~timelineLevelHeight thick - fine for one
+                // horizontal line of text under a wide segment, but far too narrow for
+                // horizontal text under a tall vertical-mode segment. Flip the label to run
+                // along the (much roomier) along-axis instead.
+                .classed("timeMarker-vertical", !isHorizontal)
                 .on("click", (e, d: HierarchyRectangularNode<DataViewHierarchyNode>) => {
                     d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
                     e.stopPropagation();
                 })
                 .text((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
-                .style("left", (d) => d.x0)
-                .style("width", (d) => d.x1 - d.x0 - 5)
-                .style("top", (d) => d.y0 - timelineLevelHeight)
-                .style("height", (d) => d.y1 - d.y0);
+                .style(alongProp, (d) => d.x0)
+                .style(alongSizeProp, (d) => d.x1 - d.x0 - 5)
+                .style(crossProp, (d) => d.y0 - timelineLevelHeight)
+                .style(crossSizeProp, (d) => d.y1 - d.y0);
         }
 
         renderVisibleWindow();
@@ -471,8 +586,8 @@ window.Spotfire.initialize(async (mod) => {
         }
 
         function applyScrollTransform() {
-            let offsetPx = scrollValue * timeMarkerWidth;
-            scrollContent.style("transform", `translateX(${-offsetPx}px)`);
+            let offsetPx = scrollValue * timeSegmentSize;
+            scrollContent.style("transform", `translate${isHorizontal ? "X" : "Y"}(${-offsetPx}px)`);
         }
 
         // Start/Stop automatic timeline scrolling with ctrl-key or metakey + doubleclick
@@ -491,7 +606,7 @@ window.Spotfire.initialize(async (mod) => {
         function scroll() {
             if (autoScroll && scrollValue < maxScrollValue) {
                 // Advance by roughly one pixel per tick, matching the previous native-scroll speed.
-                scrollValue = Math.min(maxScrollValue, scrollValue + 1 / timeMarkerWidth);
+                scrollValue = Math.min(maxScrollValue, scrollValue + 1 / timeSegmentSize);
                 timelineScrollBar.setValue(scrollValue);
                 applyScrollTransform();
                 renderVisibleWindow();
@@ -553,8 +668,9 @@ window.Spotfire.initialize(async (mod) => {
                 .attr("class", "inactiveMarking");
 
             // Cards are positioned in scrollContent's content-space; shift by the current
-            // scroll offset to compare against the viewport-space selection rect.
-            let scrollOffsetPx = scrollValue * timeMarkerWidth;
+            // scroll offset (which only ever applies to the along-timeline axis) to compare
+            // against the viewport-space selection rect.
+            let scrollOffsetPx = scrollValue * timeSegmentSize;
 
             if (selection.x1 > selection.x2) {
                 [selection.x1, selection.x2] = [selection.x2, selection.x1];
@@ -564,8 +680,10 @@ window.Spotfire.initialize(async (mod) => {
             }
 
             let selectedCards = cardContainer.selectAll<HTMLDivElement, Card>(".card").filter((c: Card) => {
-                let x1 = calculateCardLeft(c) - scrollOffsetPx;
-                let y1 = calculateCardTop(c.verticalPosition);
+                let alongPos = calculateCardAlongPos(c) - scrollOffsetPx;
+                let crossPos = calculateCardCrossPos(c.verticalPosition);
+                let x1 = isHorizontal ? alongPos : crossPos;
+                let y1 = isHorizontal ? crossPos : alongPos;
                 let cardRect: Rect = {
                     x1: x1,
                     y1: y1,
@@ -588,50 +706,53 @@ window.Spotfire.initialize(async (mod) => {
             detachDragHandlers();
         }
 
-        function calculateCardLeft(d: Card) {
-            return edgeMargin + d.timePosition * timeMarkerWidth - cardWidth / 2 + timeMarkerWidth / 2;
+        function calculateCardAlongPos(d: Card) {
+            return edgeMargin + d.timePosition * timeSegmentSize - alongCardExtent / 2 + timeSegmentSize / 2;
         }
 
-        // Cards alternate between two groups - above the timeline (0) and below it (1) -
-        // and stack outward from the timeline in lanes within their group.
+        // Cards alternate between two groups - before the timeline (0) and after it (1) along
+        // the cross axis - and stack outward from the timeline in lanes within their group.
         function laneInfo(verticalPosition: number) {
             return { group: verticalPosition % 2, lane: Math.floor(verticalPosition / 2) };
         }
 
-        function calcConnectorHeight(d: Card) {
+        function calcConnectorCrossExtent(d: Card) {
             let { group, lane } = laneInfo(d.verticalPosition);
 
             switch (group) {
                 case 0:
-                    return lane * cardSpacing + verticalSpaceBetweenCards;
+                    return lane * cardSpacing + crossSpaceBetweenCards;
                 case 1:
                 default:
-                    return verticalSpaceBetweenCards + lane * cardSpacing - 3;
+                    return crossSpaceBetweenCards + lane * cardSpacing - 3;
             }
         }
 
-        function calcConnectorTop(verticalPosition: number) {
+        function calcConnectorCrossPos(verticalPosition: number) {
             let { group, lane } = laneInfo(verticalPosition);
 
             switch (group) {
                 case 0:
-                    return timeLineTop - verticalSpaceBetweenCards - lane * cardSpacing;
+                    return timeLineCrossPos - crossSpaceBetweenCards - lane * cardSpacing;
                 case 1:
                 default:
-                    return timeLineTop + timelineLevelHeight * timeHierarchyDepth + 3;
+                    return timeLineCrossPos + timelineLevelHeight * timeHierarchyDepth + 3;
             }
         }
 
-        function calculateCardTop(verticalPosition: number) {
+        function calculateCardCrossPos(verticalPosition: number) {
             let { group, lane } = laneInfo(verticalPosition);
 
             switch (group) {
                 case 0:
-                    return timeLineTop - verticalSpaceBetweenCards - lane * cardSpacing - cardHeight;
+                    return timeLineCrossPos - crossSpaceBetweenCards - lane * cardSpacing - crossCardExtent;
                 case 1:
                 default:
                     return (
-                        timeLineTop + timelineLevelHeight * timeHierarchyDepth + lane * cardSpacing + verticalSpaceBetweenCards
+                        timeLineCrossPos +
+                        timelineLevelHeight * timeHierarchyDepth +
+                        lane * cardSpacing +
+                        crossSpaceBetweenCards
                     );
             }
         }

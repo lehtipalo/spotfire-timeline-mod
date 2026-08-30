@@ -27,5 +27,6 @@
     "legend": {
         "defaultVisibility": "hidden"
     },
+    "properties": [{ "name": "orientation", "type": "string", "defaultValue": "horizontal" }],
     "files": ["index.html", "main.css", "bundle.js"]
 }
