@@ -103,7 +103,8 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
         update,
         hide,
         show,
-        isHandleBeingDragged
+        isHandleBeingDragged,
+        handleWheel: scrollBarMouseWheel
     };
 
     function isHandleBeingDragged() {
@@ -280,6 +281,10 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
     }
 
     function scrollBarMouseWheel(event: WheelEvent) {
+        // Also used for wheel scrolling over the visualization itself (see index.ts), where
+        // an unprevented horizontal delta can otherwise trigger the browser's swipe-to-navigate
+        // gesture instead of panning the timeline.
+        event.preventDefault();
         let delta =
             orientation === "horizontal" ? event.deltaX || event.deltaY : event.deltaY || event.deltaX;
         let change = Math.round(delta / scrollDistance);
