@@ -1,6 +1,8 @@
 # Timeline Mod User Guide
 
-Turn a list of dated events into a story you can scan at a glance. The Timeline mod lays events out along a date or category axis, stacking overlapping ones into readable cards you can color, mark, and drill into — from a handful of milestones to tens of thousands of rows without the visualization slowing down.
+Turn a list of dated events into a story you can scan at a glance. The Timeline mod lays events out along a date or category axis, stacking overlapping ones into readable cards you can color, mark, and explore — from a handful of milestones to tens of thousands of rows without the visualization slowing down.
+
+It's built to play well with the rest of your analysis: use it as a starting point, marking events to explore them further in your other visualizations, or as a details view that reacts to filtering and marking coming from elsewhere on the page.
 
 - [Get started](#get-started)
 - [Configuring the timeline](#configuring-the-timeline)
@@ -67,6 +69,8 @@ Ctrl-click (Cmd-click on Mac) to add or remove items from the current marking in
 Click and drag across empty space to draw a selection box and mark every card it touches. Clicking empty space without dragging clears the marking.
 
 A marked card is drawn on top of any overlapping unmarked cards.
+
+This marking isn't local to the timeline — it's the same marking used throughout Spotfire, so rows marked here are marked everywhere else on the page that shares it, letting you [explore the same events across your other visualizations](https://docs.tibco.com/pub/sfire-analyst/latest/doc/html/en-US/TIB_sfire_client/client/topics/en-US/exploring_data_across_visualizations.html). Right-click a marking to [drill down into a details visualization](https://docs.tibco.com/pub/sfire-analyst/latest/doc/html/en-US/TIB_sfire_client/client/topics/en-US/drilling_down_into_details.html) built from just the marked events, or open the Details-on-Demand panel to [inspect every underlying row](https://docs.tibco.com/pub/sfire-analyst/latest/doc/html/en-US/TIB_sfire_client/client/topics/en-US/displaying_item_details.html) behind a marked card.
 
 ### Tooltips
 
