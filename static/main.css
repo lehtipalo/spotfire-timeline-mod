@@ -1,6 +1,7 @@
 
 body {
     overflow-y:hidden;
+    overflow-x:hidden;
 }
 
 #modcontainer {
@@ -38,7 +39,51 @@ body {
 #drawingLayer  {
     height: 100%;
     width: 100%;
-    overflow: auto;
+    overflow: hidden;
+    position: relative;
+}
+
+#scrollContent {
+    position: relative;
+    height: 100%;
+}
+
+#scrollBar {
+    position: absolute;
+    box-sizing: border-box;
+    border: solid 1px;
+    border-radius: 4px;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1px;
+    transition: opacity 0.15s ease;
+}
+
+#scrollBarButtonLeft,
+#scrollBarButtonRight {
+    box-sizing: border-box;
+    cursor: default;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+}
+
+#arrowLeft,
+#arrowRight {
+    width: 0;
+    height: 0;
+}
+
+#scrollBarHandle {
+    position: absolute;
+    box-sizing: border-box;
+    border-radius: 4px;
+    cursor: default;
+    top: 50%;
+    transform: translateY(-50%);
 }
 
 .timeline {

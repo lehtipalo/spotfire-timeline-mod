@@ -1,6 +1,7 @@
 import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo } from "spotfire-api";
 import { select } from "d3-selection";
 import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
+import { scrollBarControl } from "./scrollBarControl";
 
 interface Card {
     timePosition: number;
@@ -26,13 +27,13 @@ const timeAxisName = "Time",
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
     rowsPerCard = 2,
-    maxTimeSegments = 2000,
-    maxRowCount = 2000;
+    scrollBarHeight = 16;
 
 /**
  * Set up drawing layers
  */
 const modContainer = select("#mod-container");
+const timelineScrollBar = scrollBarControl(modContainer);
 
 let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
@@ -67,8 +68,43 @@ window.Spotfire.initialize(async (mod) => {
     let minimumTimeSegmentWidth = fontSize * 4;
     let cardWidth = 3.2 * minimumTimeSegmentWidth;
     let timeSegmentMargin = cardWidth / 2;
+    // The actual reserved space at each edge of the content for a card centered on the
+    // first/last segment to spill into. Trimmed by 10px from timeSegmentMargin so the left
+    // and right edges end up visually equal - drawingAreaWidth used to only apply this trim
+    // on the right (a "- 10" fudge with no corresponding left-side adjustment), leaving the
+    // left margin 10px wider than the right.
+    let edgeMargin = timeSegmentMargin - 10;
     let autoScroll = false;
     let autoScrollSpeed = 5;
+    // Leftmost visible time segment index, persisted across renders so scroll position
+    // survives marking/window updates instead of resetting on every re-render.
+    let scrollValue = 0;
+    // Whether the timeline currently overflows the viewport at all, and whether the mouse
+    // is over the visualization - the scrollbar only shows when both are true. Persisted
+    // (rather than render-local) since hover can change independently of any render pass.
+    let needsScroll = false;
+    let isHovering = false;
+
+    function updateScrollBarVisibility() {
+        if (needsScroll && isHovering) {
+            timelineScrollBar.show();
+        } else {
+            timelineScrollBar.hide();
+        }
+    }
+
+    modContainer.on("mouseenter", () => {
+        isHovering = true;
+        updateScrollBarVisibility();
+    });
+    modContainer.on("mouseleave", () => {
+        isHovering = false;
+        // Don't fade out mid-drag if the cursor slips past the mod's edge while the user
+        // is still holding the handle.
+        if (!timelineScrollBar.isHandleBeingDragged()) {
+            updateScrollBarVisibility();
+        }
+    });
 
     // configfure styling
     document.querySelector("#extra_styling")!.innerHTML = `
@@ -83,10 +119,18 @@ window.Spotfire.initialize(async (mod) => {
     reader.subscribe(render);
 
     /**
-     * Clears the DOM.
+     * Clears the DOM. Leaves the scrollbar's own DOM in place - it's created once
+     * (see scrollBarControl(modContainer) above) and its event handlers are bound to
+     * those specific nodes, so removing them here would leave it permanently broken.
      */
     function clear() {
-        modContainer.selectAll("*").remove();
+        modContainer
+            .selectAll<HTMLElement, unknown>(":scope > *")
+            .filter(function () {
+                return this.id !== "scrollBar";
+            })
+            .remove();
+        timelineScrollBar.hide();
     }
 
     /**
@@ -129,13 +173,6 @@ window.Spotfire.initialize(async (mod) => {
             return;
         }
 
-        // Bailout if there is more data than we can gracefully render.
-        if (rowCount > maxRowCount) {
-            bailout(`Sorry. There is currently too much data. This visualization cannot handle more than ${maxRowCount} rows,
-            and there are currently ${rowCount} of them. Try filtering or change the configuration.`);
-            return;
-        }
-
         let hasTimeAxisa = !!(await dataView.categoricalAxis(timeAxisName));
 
         if (!hasTimeAxisa) {
@@ -160,12 +197,6 @@ window.Spotfire.initialize(async (mod) => {
 
         let timeLeaves = timeHiearchyRoot.leaves();
 
-        if (timeLeaves.length > maxTimeSegments) {
-            bailout(`Sorry. There is currently too many time segments. This visualization cannot handle more than ${maxTimeSegments} time segments,
-            and there are currently ${timeLeaves.length} of them. Try filtering or change the configuration.`);
-            return;
-        }
-
         let timeHierarchyDepth = timeHierarchy?.levels.length || 0;
         let hierarchyRoot = await timeHierarchy?.root();
         if (!hierarchyRoot) return;
@@ -173,14 +204,25 @@ window.Spotfire.initialize(async (mod) => {
         /**
          * Calculate Layout
          */
-        let timeMarkerWidth = (windowSize.width - timeSegmentMargin * 2) / timeLeaves.length;
+        let timeMarkerWidth = (windowSize.width - edgeMargin * 2) / timeLeaves.length;
         timeMarkerWidth = timeMarkerWidth >= minimumTimeSegmentWidth ? timeMarkerWidth : minimumTimeSegmentWidth;
         const timeSegmentsPerCard = Math.ceil((cardWidth + horizontalSpaceBetweenCards) / timeMarkerWidth);
         const timeLineTop = windowSize.height / 2 - (timelineLevelHeight * timeHierarchyDepth) / 2;
         const drawingAreaHeight = windowSize.height - 35;
-        const drawingAreaWidth = timeLeaves.length * timeMarkerWidth + timeSegmentMargin * 2 - 10;
+        const drawingAreaWidth = timeLeaves.length * timeMarkerWidth + edgeMargin * 2;
         const timelineWidth = timeLeaves.length * timeMarkerWidth;
         const timelineHeight = (timeHierarchyDepth + 1) * timelineLevelHeight;
+
+        // Horizontal scrolling: how many time segments fit in the viewport at once, and how
+        // far scrollValue (index of the leftmost visible segment) may go. This is bounded by
+        // the full content width (drawingAreaWidth), not just the timeline's own width - cards
+        // are much wider than a single time segment and spill into the edgeMargin reserved
+        // on each side, so scrolling only far enough to reveal the last *segment*
+        // would still leave the last *card* clipped at the viewport edge.
+        const visibleTimeSegments = windowSize.width / timeMarkerWidth;
+        const maxScrollValue = Math.max(0, (drawingAreaWidth - windowSize.width) / timeMarkerWidth);
+        needsScroll = drawingAreaWidth > windowSize.width;
+        scrollValue = Math.min(scrollValue, maxScrollValue);
 
         let cards: Card[] = [];
         let lastPosition = new Map();
@@ -227,13 +269,18 @@ window.Spotfire.initialize(async (mod) => {
          */
 
         let drawingLayer = modContainer.selectAll("#drawingLayer").data([null]).join("div").attr("id", "drawingLayer");
-        let connectorContainer = drawingLayer
+        let scrollContent = drawingLayer
+            .selectAll("#scrollContent")
+            .data([null])
+            .join("div")
+            .attr("id", "scrollContent");
+        let connectorContainer = scrollContent
             .selectAll("#connectors")
             .data([null])
             .join("div")
             .attr("id", "connectors");
-        let cardContainer = drawingLayer.selectAll("#cards").data([null]).join("div").attr("id", "cards");
-        let timeline = drawingLayer
+        let cardContainer = scrollContent.selectAll("#cards").data([null]).join("div").attr("id", "cards");
+        let timeline = scrollContent
             .selectAll("#timeline")
             .data([null])
             .join("div")
@@ -246,78 +293,29 @@ window.Spotfire.initialize(async (mod) => {
             .attr("id", "markingOverlay")
             .attr("class", "inactiveMarking");
 
-        // Drawing Layer
+        // #mod-container has no CSS height of its own - it auto-sizes to its normal-flow
+        // content, which is just drawingLayer (shorter than windowSize.height). The
+        // scrollbar, positioned near the true bottom of the mod, would then render outside
+        // mod-container's own box, so hovering it would count as a mouseleave on the
+        // container it's meant to be part of. Size it explicitly to the full viewport.
+        modContainer.style("width", `${windowSize.width}px`).style("height", `${windowSize.height}px`);
+
+        // Drawing Layer - fixed to the viewport width. scrollContent is the full (possibly
+        // wider) content that gets panned horizontally via a CSS transform.
         drawingLayer
             .style("left", `${0}`)
             .style("top", `${0}`)
             .style("height", `${drawingAreaHeight}`)
-            .style("width", `${drawingAreaWidth}`)
+            .style("width", `${windowSize.width}`)
             .on("mousedown", mouseDownHandler)
             .on("dblclick", doubleclickHandler);
 
-        // Start/Stop automatic timeline scrolling with ctrl-key or metakey + doubleclick
-
-        function doubleclickHandler(event: MouseEvent) {
-            if (event.ctrlKey || event.metaKey) {
-                if (!autoScroll) {
-                    autoScroll = true;
-                    scroll();
-                } else {
-                    autoScroll = false;
-                }
-            }
-        }
-
-        function scroll() {
-            let currentScroll = document.body.scrollLeft;
-            if (autoScroll && currentScroll < timelineWidth - windowSize.width) {
-                document.body.scrollLeft = currentScroll + 1;
-                setTimeout(scroll, autoScrollSpeed);
-            }
-        }
-
-        //  Connectors
-
-        connectorContainer
-            .selectAll<HTMLDivElement, Card>(".connector")
-            .data(displayCards, (d: Card) => d.row.elementId(true))
-            .join("div")
-            .attr("class", "connector")
-            .style("left", (d) => `${timeSegmentMargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`)
-            .style("top", (d) => `${calcConnectorTop(d.verticalPosition)}px`)
-            .style("height", (d) => `${calcConnectorHeight(d)}px`);
-
-        // Cards
-
-        cardContainer
-            .selectAll<HTMLDivElement, Card>(".card")
-            .data(cards, (d: Card) => d.row.elementId(true))
-            .join("div")
-            .attr("class", "card")
-            .attr("draggable", "false")
-            .classed("card-marked", (d) => d.row.isMarked())
-            .on("click", (e, d) => {
-                d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
-                e.stopPropagation();
-            })
-            .text((d) => `${d.description}`)
-            .style("left", (d: Card) => `${calculateCardLeft(d)}px`)
-            .style("top", (d: Card) => `${calculateCardTop(d.verticalPosition)}px`)
-            .style("height", (d: Card) => `${cardHeight}px`)
-            .style("width", (d: Card) => `${cardWidth}px`)
-            .style("background-color", (d) => `${d.color.hexCode}`)
-            .style("color", (d: Card) => `${contrastColor(d.color.hexCode)}`);
-
-        // marked cards on top
-        cardContainer
-            .selectAll<HTMLDivElement, Card>(".card")
-            .filter((d: Card) => d.row.isMarked())
-            .raise();
+        scrollContent.style("height", `${drawingAreaHeight}`).style("width", `${drawingAreaWidth}`);
 
         // Timeline
 
         timeline
-            .style("left", (d) => timeSegmentMargin)
+            .style("left", (d) => edgeMargin)
             .style("top", (d) => timeLineTop)
             .style("width", (d) => timeLeaves.length * timeMarkerWidth + 2)
             .style("height", (d) => timelineLevelHeight * timeHierarchyDepth + 2);
@@ -339,22 +337,165 @@ window.Spotfire.initialize(async (mod) => {
             .descendants()
             .filter((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.parent);
 
-        timeline
-            .selectAll(".timeMarker")
-            .data(displayHierarchy)
-            .join("div")
-            .attr("class", "timeMarker")
-            .classed("timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
-            .classed("timeMarker-top", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
-            .on("click", (e, d: HierarchyRectangularNode<DataViewHierarchyNode>) => {
-                d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
-                e.stopPropagation();
-            })
-            .text((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
-            .style("left", (d) => d.x0)
-            .style("width", (d) => d.x1 - d.x0 - 5)
-            .style("top", (d) => d.y0 - timelineLevelHeight)
-            .style("height", (d) => d.y1 - d.y0);
+        // Horizontal scrollbar
+        timelineScrollBar.update(
+            windowSize.width,
+            0,
+            windowSize.height - scrollBarHeight,
+            scrollBarHeight,
+            // Total content width in the same timeMarkerWidth-normalized units as scrollValue
+            // (drawingAreaWidth / timeMarkerWidth) - used only for the handle's proportional
+            // width (extent / totalItems), not for its position, so it's independent of
+            // whatever that width ends up clamped to.
+            maxScrollValue + visibleTimeSegments,
+            scrollValue,
+            maxScrollValue,
+            visibleTimeSegments,
+            context.styling.scales.line.stroke,
+            context.styling.general.backgroundColor,
+            timeMarkerWidth,
+            onScrollValueChanged
+        );
+        updateScrollBarVisibility();
+        timelineScrollBar.render();
+        applyScrollTransform();
+
+        /**
+         * Virtual scrolling: cards, connectors and time markers are only joined into the DOM
+         * for the currently rendered window (viewport + an overscan buffer of one extra
+         * screen on each side), not for the whole dataset. This is what makes it safe to
+         * drop the old row/time-segment caps - the DOM node count stays bounded by the
+         * viewport width regardless of how much data is behind it. cards/displayCards and
+         * displayHierarchy themselves are still built from the full dataset every render
+         * (needed for correct global card-stacking and proportional time-segment widths),
+         * but that's cheap plain-object work, not DOM.
+         */
+        let renderedRangeStart = Infinity;
+        let renderedRangeEnd = -Infinity;
+
+        function renderVisibleWindow() {
+            let viewportLeftPx = scrollValue * timeMarkerWidth;
+            let viewportRightPx = viewportLeftPx + windowSize.width;
+
+            // Already-rendered window (with its overscan buffer) still covers the viewport -
+            // nothing new would come into view, so skip the rejoin entirely.
+            if (viewportLeftPx >= renderedRangeStart && viewportRightPx <= renderedRangeEnd) {
+                return;
+            }
+
+            let overscanPx = windowSize.width;
+            renderedRangeStart = Math.max(0, viewportLeftPx - overscanPx);
+            renderedRangeEnd = Math.min(drawingAreaWidth, viewportRightPx + overscanPx);
+
+            let visibleCards = displayCards.filter((c: Card) => {
+                let x1 = calculateCardLeft(c);
+                return x1 + cardWidth >= renderedRangeStart && x1 <= renderedRangeEnd;
+            });
+
+            // Connectors
+
+            connectorContainer
+                .selectAll<HTMLDivElement, Card>(".connector")
+                .data(visibleCards, (d: Card) => d.row.elementId(true))
+                .join("div")
+                .attr("class", "connector")
+                .style(
+                    "left",
+                    (d) => `${edgeMargin + d.timePosition * timeMarkerWidth + timeMarkerWidth / 2}px`
+                )
+                .style("top", (d) => `${calcConnectorTop(d.verticalPosition)}px`)
+                .style("height", (d) => `${calcConnectorHeight(d)}px`);
+
+            // Cards
+
+            cardContainer
+                .selectAll<HTMLDivElement, Card>(".card")
+                .data(visibleCards, (d: Card) => d.row.elementId(true))
+                .join("div")
+                .attr("class", "card")
+                .attr("draggable", "false")
+                .classed("card-marked", (d) => d.row.isMarked())
+                .on("click", (e, d) => {
+                    d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+                    e.stopPropagation();
+                })
+                .text((d) => `${d.description}`)
+                .style("left", (d: Card) => `${calculateCardLeft(d)}px`)
+                .style("top", (d: Card) => `${calculateCardTop(d.verticalPosition)}px`)
+                .style("height", (d: Card) => `${cardHeight}px`)
+                .style("width", (d: Card) => `${cardWidth}px`)
+                .style("background-color", (d) => `${d.color.hexCode}`)
+                .style("color", (d: Card) => `${contrastColor(d.color.hexCode)}`);
+
+            // marked cards on top
+            cardContainer
+                .selectAll<HTMLDivElement, Card>(".card")
+                .filter((d: Card) => d.row.isMarked())
+                .raise();
+
+            // Time markers
+
+            let visibleMarkers = displayHierarchy.filter(
+                (d: HierarchyRectangularNode<DataViewHierarchyNode>) =>
+                    d.x1 >= renderedRangeStart && d.x0 <= renderedRangeEnd
+            );
+
+            timeline
+                .selectAll<HTMLDivElement, HierarchyRectangularNode<DataViewHierarchyNode>>(".timeMarker")
+                .data(visibleMarkers, (d) => d.data.formattedPath())
+                .join("div")
+                .attr("class", "timeMarker")
+                .classed("timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
+                .classed("timeMarker-top", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
+                .on("click", (e, d: HierarchyRectangularNode<DataViewHierarchyNode>) => {
+                    d.data.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
+                    e.stopPropagation();
+                })
+                .text((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
+                .style("left", (d) => d.x0)
+                .style("width", (d) => d.x1 - d.x0 - 5)
+                .style("top", (d) => d.y0 - timelineLevelHeight)
+                .style("height", (d) => d.y1 - d.y0);
+        }
+
+        renderVisibleWindow();
+
+        function onScrollValueChanged(newValue: number) {
+            scrollValue = newValue;
+            applyScrollTransform();
+            renderVisibleWindow();
+        }
+
+        function applyScrollTransform() {
+            let offsetPx = scrollValue * timeMarkerWidth;
+            scrollContent.style("transform", `translateX(${-offsetPx}px)`);
+        }
+
+        // Start/Stop automatic timeline scrolling with ctrl-key or metakey + doubleclick
+
+        function doubleclickHandler(event: MouseEvent) {
+            if (event.ctrlKey || event.metaKey) {
+                if (!autoScroll) {
+                    autoScroll = true;
+                    scroll();
+                } else {
+                    autoScroll = false;
+                }
+            }
+        }
+
+        function scroll() {
+            if (autoScroll && scrollValue < maxScrollValue) {
+                // Advance by roughly one pixel per tick, matching the previous native-scroll speed.
+                scrollValue = Math.min(maxScrollValue, scrollValue + 1 / timeMarkerWidth);
+                timelineScrollBar.setValue(scrollValue);
+                applyScrollTransform();
+                renderVisibleWindow();
+                setTimeout(scroll, autoScrollSpeed);
+            } else {
+                autoScroll = false;
+            }
+        }
 
         context.signalRenderComplete();
 
@@ -363,13 +504,13 @@ window.Spotfire.initialize(async (mod) => {
          */
 
         function mouseDownHandler(event: MouseEvent) {
-            let scrollLeft = document.body.scrollLeft;
-            let scrollTop = document.body.scrollTop;
+            // markingOverlay isn't inside the scrolled content, so selection is tracked in
+            // plain viewport coordinates (clientX/clientY) rather than content-space pixels.
             selection = {
-                x1: event.clientX + scrollLeft,
-                y1: event.clientY + scrollTop,
-                x2: event.clientX + scrollLeft,
-                y2: event.clientY + scrollTop
+                x1: event.clientX,
+                y1: event.clientY,
+                x2: event.clientX,
+                y2: event.clientY
             };
             activeMouseMoveHandler = mouseMoveHandler;
             activeMouseUpHandler = mouseUpHandler;
@@ -378,10 +519,8 @@ window.Spotfire.initialize(async (mod) => {
         }
 
         function mouseMoveHandler(event: MouseEvent) {
-            let scrollLeft = document.body.scrollLeft;
-            let scrollTop = document.body.scrollTop;
-            selection.x2 = event.clientX + scrollLeft;
-            selection.y2 = event.clientY + scrollTop;
+            selection.x2 = event.clientX;
+            selection.y2 = event.clientY;
 
             markingOverlay
                 .attr("class", "activeMarking")
@@ -399,8 +538,12 @@ window.Spotfire.initialize(async (mod) => {
                 .style("height", `${0}`)
                 .attr("class", "inactiveMarking");
 
+            // Cards are positioned in scrollContent's content-space; shift by the current
+            // scroll offset to compare against the viewport-space selection rect.
+            let scrollOffsetPx = scrollValue * timeMarkerWidth;
+
             let selectedCards = cardContainer.selectAll<HTMLDivElement, Card>(".card").filter((c: Card) => {
-                let x1 = calculateCardLeft(c);
+                let x1 = calculateCardLeft(c) - scrollOffsetPx;
                 let y1 = calculateCardTop(c.verticalPosition);
                 let cardRect: Rect = {
                     x1: x1,
@@ -432,7 +575,7 @@ window.Spotfire.initialize(async (mod) => {
         }
 
         function calculateCardLeft(d: Card) {
-            return timeSegmentMargin + d.timePosition * timeMarkerWidth - cardWidth / 2 + timeMarkerWidth / 2;
+            return edgeMargin + d.timePosition * timeMarkerWidth - cardWidth / 2 + timeMarkerWidth / 2;
         }
 
         function calcConnectorHeight(d: Card) {
