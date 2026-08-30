@@ -18,3 +18,5 @@
 -   Fixed the timeline's left and right edge margins so they're now equal - previously there was a bit more empty space on the left than on the right.
 -   Hovering a card that's partially hidden behind another now brings it to the front so it can be read, without disturbing which card is on top once you move the mouse away.
 -   Hovering a card now shows a Spotfire tooltip with its date and full description, useful when the card's own text is too long to fit and gets truncated.
+-   Added a vertical layout mode. Hover over the visualization to reveal a settings button for switching between horizontal and vertical layout - the choice is saved with the analysis.
+-   Fixed an issue where the outermost card in the stack could be cut off by the scrollbar.
