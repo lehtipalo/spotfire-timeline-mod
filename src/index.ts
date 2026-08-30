@@ -8,10 +8,9 @@ export type Orientation = "horizontal" | "vertical";
 interface Card {
     timePosition: number;
     verticalPosition: number;
-    // Cards whose time footprints never overlap (even transitively through other cards)
-    // can never appear stacked near each other, so they're grouped into independent
-    // "islands" that each get their own lane spacing - see the island-building loop below.
-    islandId: number;
+    // Cross-axis lane pitch for this card - see the local-peak search below for how it's
+    // derived. Filled in after verticalPosition is assigned.
+    cardSpacing: number;
     description: string;
     color: DataViewColorInfo;
     row: DataViewRow;
@@ -305,55 +304,38 @@ window.Spotfire.initialize(async (mod) => {
         scrollValue = Math.min(scrollValue, maxScrollValue);
 
         let cards: Card[] = [];
+        // Tracks, per lane, the time index of the last card placed there - a lane is free
+        // again once a new card is far enough past it (>= timeSegmentsPerCard) to guarantee
+        // no overlap.
         let lastPosition = new Map();
-        // Peak concurrent-lane count reached within each island, keyed by islandId - used
-        // below to give each island its own lane spacing.
-        let islandPeakLanes = new Map<number, number>();
-        let currentIslandId = -1;
-        let currentIslandPeakLanes = 0;
-        // Merged-interval end of the current island: the furthest along-axis point any
-        // card placed so far could still visually reach. A card starting at or past this
-        // point can't overlap (even transitively) with anything before it, so it starts a
-        // fresh island - see the Card.islandId doc comment.
-        let islandEnd = -Infinity;
+        // Concurrent-lane count at the moment each card was placed (its own lane index + 1),
+        // in card order. Seeds the local-peak search below rather than one peak shared by
+        // every card that ever transitively chained together.
+        let rawPeakAtInsertion: number[] = [];
 
         timeLeaves.forEach((node: DataViewHierarchyNode) => {
             node.rows().forEach((row: DataViewRow) => {
                 if (hasEventAxis && row.categorical(eventAxisName).formattedValue() != "") {
                     let index = row.categorical(timeAxisName).leafIndex;
 
-                    if (index >= islandEnd) {
-                        if (currentIslandId >= 0) {
-                            islandPeakLanes.set(currentIslandId, currentIslandPeakLanes);
-                        }
-                        currentIslandId++;
-                        currentIslandPeakLanes = 0;
-                        lastPosition = new Map();
-                    }
-                    islandEnd = Math.max(islandEnd, index + timeSegmentsPerCard);
-
                     let vp = 0;
-
                     while (lastPosition.get(vp) != undefined && index - lastPosition.get(vp) < timeSegmentsPerCard) {
                         vp++;
                     }
                     lastPosition.set(vp, index);
-                    currentIslandPeakLanes = vp + 1 > currentIslandPeakLanes ? vp + 1 : currentIslandPeakLanes;
+                    rawPeakAtInsertion.push(vp + 1);
 
                     cards.push({
                         description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
                         verticalPosition: vp,
-                        islandId: currentIslandId,
-                        timePosition: row.categorical(timeAxisName).leafIndex,
+                        cardSpacing: 0,
+                        timePosition: index,
                         color: row.color(),
                         row: row
                     });
                 }
             });
         });
-        if (currentIslandId >= 0) {
-            islandPeakLanes.set(currentIslandId, currentIslandPeakLanes);
-        }
 
         // Shuffle cards on top of each other to fit across the stacking axis, within the
         // actual visible drawing area (drawingAreaCrossSize), not the raw window - fitting
@@ -363,24 +345,6 @@ window.Spotfire.initialize(async (mod) => {
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
         const naturalCardSpacing = crossCardExtent + 4 + crossSpaceBetweenCards;
-        // Cards only ever need to be told apart from others that can land near them along
-        // the timeline - a crowded pocket elsewhere shouldn't force every other card on the
-        // timeline to squeeze together too. Each island (a run of cards whose along-axis
-        // footprints chain together - see the loop above) gets its own lane spacing, sized
-        // to its own peak concurrency rather than the dataset-wide worst case.
-        //
-        // Known limit: every card within one island still shares that island's single
-        // spacing value, sized for the island's single worst moment. This is a hard floor,
-        // not an oversight - two cards that directly conflict (their along-axis footprints
-        // overlap) MUST share a spacing value, or a smaller value on the higher lane can
-        // render it closer to the timeline than a larger-spaced lower lane, causing overlap
-        // that's worse than using one shared value. For a dense, fairly evenly-spread
-        // dataset (e.g. one historical event every ~2-3 years for centuries), most events
-        // end up transitively chained into one large island, so compression - and the
-        // overlap it causes when even the compressed spacing can't fit every lane at full
-        // card size - can still occur much like before this fix. Breaking that would mean
-        // abandoning the "lane index * shared spacing" positioning model entirely (e.g.
-        // shrinking card size in crowded islands, or true 2D rectangle packing).
         function cardSpacingForPeak(peakLanes: number): number {
             const lanesPerGroup = Math.ceil(peakLanes / numAlignmentGroups);
             const totalSpaceRequired =
@@ -392,8 +356,41 @@ window.Spotfire.initialize(async (mod) => {
                       (crossCardExtent + 4) * numAlignmentGroups) /
                       (numAlignmentGroups * lanesPerGroup);
         }
-        const cardSpacingByIsland = new Map<number, number>();
-        islandPeakLanes.forEach((peakLanes, id) => cardSpacingByIsland.set(id, cardSpacingForPeak(peakLanes)));
+        // Cards only ever need to be told apart from others close enough to actually risk
+        // landing near them along the timeline - a crowded pocket elsewhere shouldn't force
+        // every other card on the timeline to squeeze together too. So rather than one
+        // spacing value shared by an entire transitively-chained run of overlapping cards
+        // (which lets one distant pileup compress even the sparse stretches of that run),
+        // each card gets its own spacing sized to the worst concurrency found within
+        // timeSegmentsPerCard of it in either direction - the same distance already used to
+        // test whether two cards can conflict at all. Cards further apart than that can
+        // never land close enough to visually collide, so they have no need to agree on a
+        // spacing value.
+        //
+        // Known limit: this is a local approximation, not a global guarantee. Each card's
+        // window only looks timeSegmentsPerCard in either direction from itself, so two
+        // cards that directly overlap each other right at the edge of a dense pocket can
+        // still end up with slightly different spacing (one card's window reaches deeper
+        // into the pocket than the other's does) - a true fix would require propagating
+        // peaks between directly-overlapping cards to a fixpoint, which degenerates back to
+        // whole-run sharing. In practice this shows up rarely, only right at a pocket's
+        // boundary, and is far smaller in both frequency and magnitude than the blanket
+        // over-compression it replaces, which forced every card in a long chain to share the
+        // single worst moment anywhere in that chain.
+        cards.forEach((card, i) => {
+            let peak = rawPeakAtInsertion[i];
+            for (let j = i - 1; j >= 0 && card.timePosition - cards[j].timePosition < timeSegmentsPerCard; j--) {
+                peak = Math.max(peak, rawPeakAtInsertion[j]);
+            }
+            for (
+                let j = i + 1;
+                j < cards.length && cards[j].timePosition - card.timePosition < timeSegmentsPerCard;
+                j++
+            ) {
+                peak = Math.max(peak, rawPeakAtInsertion[j]);
+            }
+            card.cardSpacing = cardSpacingForPeak(peak);
+        });
 
         /**
          * Update DOM
@@ -844,7 +841,7 @@ window.Spotfire.initialize(async (mod) => {
 
         function calcConnectorCrossExtent(d: Card) {
             let { group, lane } = laneInfo(d.verticalPosition);
-            let cardSpacing = cardSpacingByIsland.get(d.islandId)!;
+            let cardSpacing = d.cardSpacing;
 
             switch (group) {
                 case 0:
@@ -857,7 +854,7 @@ window.Spotfire.initialize(async (mod) => {
 
         function calcConnectorCrossPos(d: Card) {
             let { group, lane } = laneInfo(d.verticalPosition);
-            let cardSpacing = cardSpacingByIsland.get(d.islandId)!;
+            let cardSpacing = d.cardSpacing;
 
             switch (group) {
                 case 0:
@@ -870,7 +867,7 @@ window.Spotfire.initialize(async (mod) => {
 
         function calculateCardCrossPos(d: Card) {
             let { group, lane } = laneInfo(d.verticalPosition);
-            let cardSpacing = cardSpacingByIsland.get(d.islandId)!;
+            let cardSpacing = d.cardSpacing;
 
             switch (group) {
                 case 0:
