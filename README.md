@@ -4,95 +4,39 @@ The timeline can be used to show events on a timeline. Here's one example that s
 
 ![Mods Timeline](/images/Timeline.png)
 
-## Try this mod in Spotfire Analyst
+# Try this visualization mod
 
-### How to open the mod
+To use this mod, download it from Community Exchange.
 
-1. Open Spotfire Analyst, and create an analysis by loading some data.
-2. Unzip the downloaded file, and locate the .mod file in the unzipped folder.
-3. Drag the file into the analysis.
-4. The visualization mod is added to the analysis.
-5. To learn about the capabilities and limitations of this visualization mod, keep reading.
+## Download from Exchange
 
-For general information on how to use and share visualization mods, [read the Spotfire documentation](https://docs.tibco.com/pub/sfire-analyst/11.0.0/doc/html/en-US/TIB_sfire-analyst_UsersGuide/index.htm?_ga=2.41319073.2072719993.1606728875-1950738096.1600074380#t=modvis%2Fmodvis_how_to_use_a_visualization_mod.htm).
+1. Sign in with your community account.
+2. Click Download in the upper right part of this page and download the .mod file.
+3. Open Spotfire, and create an analysis by loading some data.
+4. Drag the downloaded .mod file into the analysis.
+5. The visualization is added to the analysis.
 
-## Data requirement
+To learn more about the capabilities and limitations of this visualization mod, read its [user guide](docs/user-guide.md).
 
-The timeline can be used to visulize any dataset that contains dates and descriptions. In order to make it work properly a data table with at least two columns is required:
+# Data requirements
 
--   One date hierarchy. A column with actual dates works best, but any combination of categorical columns are supported. This determines the timeline.
--   One description column. This determines what is written in the cards.
+For information on data requirements, the available settings, and how to set up the axes, see [Documentation](#documentation) below.
 
-Optionally a third categorical column could be used to color the cards.
+# Documentation
 
-Every mod handles missing, corrupted and/or inconsistent data in different ways. It is advised to always review how the data is visualized.
+For more information on data requirements, the available settings, and how to configure the mod, see the [user guide](docs/user-guide.md).
 
-## Setting up the timeline
+For general information on how to use and share visualization mods, [read the Spotfire documentation](https://docs.tibco.com/pub/sfire-analyst/latest/doc/html/en-US/TIB_sfire_client/client/topics/en-US/visualization_mods.html).
 
-Let's say we have data about some world events:
+# Support
 
-| Date          | Event                   | Sentiment |
-| ------------- | ----------------------- | --------- |
-| Feb 11, 2021  | Something happened      | Neutral   |
-| Feb 14, 2021  | Something else happened | Neutral   |
-| March 8, 2021 | Something bad happened  | Negative  |
+_This mod is not supported by Spotfire._
 
-A basic timeline can be configured to show these events over time by creating a Timeline with the following settings:
+To ask questions or request enhancements, post a question in the [Forum](https://community.spotfire.com/forums/) and tag with Mods.
 
--   Time = Date: Year.Month.Day
--   Event = Event
+# Building the mod
 
-Optionally you could also color the cards by another column, E.g.
-
--   Color By = Sentiment
-
-The end result will look something like this:
-
-![Mods Timeline 2](/images/Timeline2.png)
-
-## Configuring the timeline
-
-### Time
-
-The time segments will be determined by the hierarchy on the time axis.
-
-In the Spotfire Desktop the timeline will default to show the filtered range, meaning that it will include days regardless of whether or not there is an event for that day. This behavior can be changed in the time axis settings.
-
-In the Spotfire Web Client the timeline will show all filtered values, meaning that it will skip days for which there is no event.
-
-### Events
-
-The number of cards will be determined by the expression on the event axis and the color axis if categorical color is used.
-
-### Styling
-
-The visualization will respond to changes in the Spotfire canvas style. Label fonts, sizes and the color of lines are determined by visualization canvas settings. The size of cards and time segments will adjust to the selected font size.
-
-## Using the Timeline
-
-### Marking
-
-Clicking on an event will mark that event in the timeline and in all other visualizations that uses the same marking. Clicking or dragging in the empty space between events will clear the marking. You can mark several events by Ctrl-clicking on them.
-
-Clicking and dragging allow you to select multiple events.
-
-Clicking on a time segment will mark all events within that time segment. E.g. If your timeline shows Year > Month > Day, you can mark all events within a year by clicking on the year segment or for a particular month by clicking on month segments. You can mark several time segments by Ctrl-clicking on them.
-
-### Adjusting the hierarchy
-
-If the timeline is configured to use a date hierarchy you can decide what level of the hierarchy to show by dragging the hierarchy slider.
-
-### Horizontal Scrolling
-
-If the timeline is wider than the visualization area a scrollbar will be displayed at the bottom of the visualization.
-
-The visualization will scroll right automatically if you double click on it while holding down ctrl on Windows and the command key on Mac. Clicking anywhere will stop the automatic scrolling.
-
-## Building the mod
-
-### Source code
-
-### Developing the mod
+## Developing the mod
 
 Build Project
 
@@ -105,7 +49,7 @@ In a new terminal window
 
 -   `npm run server`
 
-### Build for production
+## Build for production
 
 The development version of bundle.js is uncompressed and not suitable for end users. Run the following command to compress the bundle.
 
@@ -119,21 +63,4 @@ The development version of bundle.js is uncompressed and not suitable for end us
 
 ## Version history
 
-### 1.0.0
-
--   First version.
-
-### 1.0.1
-
--   Command-key + doubleclick now starts and stop auto-scroll on Mac
--   Fixed issue that caused auto-scroll to speed up and become unstoppabel when repeatedly double-clicking on a card.
-
-### 1.1.0
-
--   Removed the previous 2000-row / 2000-time-segment limits, fixing an error that occurred after attempting to display too many rows. The timeline now only draws the cards and time segments currently in or near view, so much larger datasets can be displayed without the mod erroring out or slowing down.
--   Replaced the browser's native horizontal scrollbar with a custom one styled to match the Spotfire canvas theme. It's hidden by default and only appears while you hover over the visualization.
--   Fixed an issue where the last card on the timeline could be cut off at the edge when scrolled all the way to the end.
--   Fixed an issue where dragging the scrollbar handle to the end wasn't the same as clicking to the end - dragging could stop noticeably short of the last card, especially with a lot of data.
--   Fixed the timeline's left and right edge margins so they're now equal - previously there was a bit more empty space on the left than on the right.
--   Hovering a card that's partially hidden behind another now brings it to the front so it can be read, without disturbing which card is on top once you move the mouse away.
--   Hovering a card now shows a Spotfire tooltip with its date and full description, useful when the card's own text is too long to fit and gets truncated.
+See the [release notes](docs/release-notes.md).
