@@ -30,7 +30,6 @@ const timeAxisName = "Time",
     eventAxisName = "Event",
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
-    rowsPerCard = 2,
     scrollBarHeight = 16;
 
 // stroke="currentColor" picks up #settingsButton's own `color` style via inheritance.
@@ -83,17 +82,10 @@ window.Spotfire.initialize(async (mod) => {
 
     let fontSize = parseInt(context.styling.general.font.fontSize.toString()); // workaround bug in Spotfire 11.4 where fontSize returns string
 
-    let cardHeight = fontSize * rowsPerCard * 1.5;
     let timelineLevelHeight = fontSize * 2;
-    let minimumTimeSegmentWidth = fontSize * 4;
-    let cardWidth = 3.2 * minimumTimeSegmentWidth;
-    let timeSegmentMargin = cardWidth / 2;
-    // The actual reserved space at each edge of the content for a card centered on the
-    // first/last segment to spill into. Trimmed by 10px from timeSegmentMargin so the left
-    // and right edges end up visually equal - drawingAreaWidth used to only apply this trim
-    // on the right (a "- 10" fudge with no corresponding left-side adjustment), leaving the
-    // left margin 10px wider than the right.
-    let edgeMargin = timeSegmentMargin - 10;
+    // cardWidth/cardHeight/edgeMargin are computed per-render (see render()) - they're
+    // sized in relation to timeSegmentSize, which depends on the current viewport and time
+    // axis, neither of which are known this early.
     let autoScroll = false;
     let autoScrollSpeed = 5;
     // Leftmost visible time segment index, persisted across renders so scroll position
@@ -264,17 +256,49 @@ window.Spotfire.initialize(async (mod) => {
         /**
          * Calculate Layout
          */
+        const alongSpaceBetweenCards = isHorizontal ? horizontalSpaceBetweenCards : verticalSpaceBetweenCards;
+        const crossSpaceBetweenCards = isHorizontal ? verticalSpaceBetweenCards : horizontalSpaceBetweenCards;
+
+        // How many time segments a card's along-axis footprint spans, by construction (see
+        // timeSegmentSize below): 1 in vertical mode, so a lane conflict only ever happens
+        // between cards in the exact same time segment, not merely nearby ones; 2 in
+        // horizontal mode, so consecutive conflicting cards always land in alternating
+        // lanes - and, under "middle" alignment, alternating sides of the timeline, since
+        // lane parity picks the side. See the lane-assignment loop below.
+        const alongSegmentsPerCard = isHorizontal ? 2 : 1;
+        const alongGap = alongSpaceBetweenCards;
+
+        // The card's along-axis dimension is defined below as exactly
+        // alongSegmentsPerCard * timeSegmentSize - alongGap, so a card's footprint fills
+        // its segment(s) with no spillover into a neighboring one. That makes
+        // timeSegmentSize and the card's along-axis size mutually dependent: timeSegmentSize
+        // reserves edgeMargin for the card centered on the first/last segment to spill into,
+        // and edgeMargin is half that same card size. Solved in closed form rather than
+        // iterating to a fixed point:
+        //   timeSegmentSize = (mainSize - 2*edgeMargin) / N
+        //   edgeMargin = (alongSegmentsPerCard*timeSegmentSize - alongGap) / 2
+        //   => timeSegmentSize = (mainSize + alongGap) / (N + alongSegmentsPerCard)
+        //
+        // cardWidthAtFloor anchors the smallest a time segment is ever allowed to get
+        // (minimumTimeSegmentWidth) to the same card width this mod used before card size
+        // was tied to segment size, so a fully crowded timeline stays exactly as readable.
+        const cardWidthAtFloor = 3.2 * (fontSize * 4);
+        const minimumTimeSegmentWidth = (cardWidthAtFloor + horizontalSpaceBetweenCards) / 2;
+        const freeTimeSegmentSize = (mainSize + alongGap) / (timeLeaves.length + alongSegmentsPerCard);
+        let timeSegmentSize = Math.max(minimumTimeSegmentWidth, freeTimeSegmentSize);
+
+        const cardHeight = timeSegmentSize - verticalSpaceBetweenCards;
+        const cardWidth = 2 * timeSegmentSize - horizontalSpaceBetweenCards;
         // The card's fixed rendered box (cardWidth x cardHeight) never rotates - text must
         // stay upright in both modes - but which of its two dimensions plays the "along the
         // timeline" role (spacing/collision) vs the "across/stacking" role swaps by orientation.
         const alongCardExtent = isHorizontal ? cardWidth : cardHeight;
         const crossCardExtent = isHorizontal ? cardHeight : cardWidth;
-        const alongSpaceBetweenCards = isHorizontal ? horizontalSpaceBetweenCards : verticalSpaceBetweenCards;
-        const crossSpaceBetweenCards = isHorizontal ? verticalSpaceBetweenCards : horizontalSpaceBetweenCards;
-
-        let timeSegmentSize = (mainSize - edgeMargin * 2) / timeLeaves.length;
-        timeSegmentSize = timeSegmentSize >= minimumTimeSegmentWidth ? timeSegmentSize : minimumTimeSegmentWidth;
-        const timeSegmentsPerCard = Math.ceil((alongCardExtent + alongSpaceBetweenCards) / timeSegmentSize);
+        // The actual reserved space at each edge of the content for a card centered on the
+        // first/last segment to spill into - exactly half the along-axis card size, per the
+        // derivation above.
+        const edgeMargin = alongCardExtent / 2;
+        const timeSegmentsPerCard = alongSegmentsPerCard;
         const drawingAreaCrossSize = crossSize - 35;
         const timelineCrossExtent = timelineLevelHeight * timeHierarchyDepth;
         // Centered within the actual visible (scrollbar-trimmed) drawing area, not the raw
@@ -367,16 +391,19 @@ window.Spotfire.initialize(async (mod) => {
         // never land close enough to visually collide, so they have no need to agree on a
         // spacing value.
         //
-        // Known limit: this is a local approximation, not a global guarantee. Each card's
-        // window only looks timeSegmentsPerCard in either direction from itself, so two
-        // cards that directly overlap each other right at the edge of a dense pocket can
-        // still end up with slightly different spacing (one card's window reaches deeper
-        // into the pocket than the other's does) - a true fix would require propagating
-        // peaks between directly-overlapping cards to a fixpoint, which degenerates back to
-        // whole-run sharing. In practice this shows up rarely, only right at a pocket's
-        // boundary, and is far smaller in both frequency and magnitude than the blanket
-        // over-compression it replaces, which forced every card in a long chain to share the
-        // single worst moment anywhere in that chain.
+        // Known limit: this is a local approximation, not a global guarantee, in horizontal
+        // mode (timeSegmentsPerCard=2) - each card's window only looks 2 segments in either
+        // direction from itself, so two cards that directly overlap each other right at the
+        // edge of a dense pocket can still end up with slightly different spacing (one
+        // card's window reaches deeper into the pocket than the other's does). A true fix
+        // would require propagating peaks between directly-overlapping cards to a fixpoint,
+        // which degenerates back to whole-run sharing. In practice this shows up rarely,
+        // only right at a pocket's boundary, and is far smaller in both frequency and
+        // magnitude than the blanket over-compression it replaces. In vertical mode
+        // (timeSegmentsPerCard=1) this limit doesn't apply at all: two cards only ever
+        // directly overlap when they share the exact same timePosition, in which case both
+        // see the identical neighbor set (each other), so this collapses to an exact
+        // group-by-timePosition peak with no approximation.
         cards.forEach((card, i) => {
             let peak = rawPeakAtInsertion[i];
             for (let j = i - 1; j >= 0 && card.timePosition - cards[j].timePosition < timeSegmentsPerCard; j--) {
