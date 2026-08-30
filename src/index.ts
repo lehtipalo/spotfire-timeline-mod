@@ -615,13 +615,23 @@ window.Spotfire.initialize(async (mod) => {
                     d.x1 >= renderedRangeStart && d.x0 <= renderedRangeEnd
             );
 
+            // Level 0 (coarsest) normally renders at the timeline block's near edge and the
+            // deepest level at its far edge. In "end" alignment the block itself sits with
+            // its near edge against the cards (the opposite of "start"), so without a flip
+            // the coarsest level would land next to the cards and the finest level next to
+            // the empty margin - backwards relative to "start". Mirroring the level order
+            // for "end" keeps the finest level adjacent to the cards in both cases.
+            function displayLevel(d: HierarchyRectangularNode<DataViewHierarchyNode>) {
+                return cardAlignment === "end" ? timeHierarchyDepth - 1 - d.data.level : d.data.level;
+            }
+
             timeline
                 .selectAll<HTMLDivElement, HierarchyRectangularNode<DataViewHierarchyNode>>(".timeMarker")
                 .data(visibleMarkers, (d) => d.data.formattedPath())
                 .join("div")
                 .attr("class", "timeMarker")
                 .classed(isHorizontal ? "timeMarker-left" : "timeMarker-top", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
-                .classed(isHorizontal ? "timeMarker-top" : "timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.level == 0)
+                .classed(isHorizontal ? "timeMarker-top" : "timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => displayLevel(d) == 0)
                 // The cross-axis band is only ~timelineLevelHeight thick - fine for one
                 // horizontal line of text under a wide segment, but far too narrow for
                 // horizontal text under a tall vertical-mode segment. Flip the label to run
@@ -634,7 +644,7 @@ window.Spotfire.initialize(async (mod) => {
                 .text((d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.data.formattedValue())
                 .style(alongProp, (d) => d.x0)
                 .style(alongSizeProp, (d) => d.x1 - d.x0 - 5)
-                .style(crossProp, (d) => d.y0 - timelineLevelHeight)
+                .style(crossProp, (d) => displayLevel(d) * timelineLevelHeight)
                 .style(crossSizeProp, (d) => d.y1 - d.y0);
         }
 
