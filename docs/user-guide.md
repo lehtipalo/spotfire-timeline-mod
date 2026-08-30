@@ -1,17 +1,14 @@
 # Timeline Mod User Guide
 
-## Data requirements
+Turn a list of dated events into a story you can scan at a glance. The Timeline mod lays events out along a date or category axis, stacking overlapping ones into readable cards you can color, mark, and drill into — from a handful of milestones to tens of thousands of rows without the visualization slowing down.
 
-The timeline can be used to visulize any dataset that contains dates and descriptions. In order to make it work properly a data table with at least two columns is required:
+- [Get started](#get-started)
+- [Configuring the timeline](#configuring-the-timeline)
+- [Exploring the timeline](#exploring-the-timeline)
 
--   One date hierarchy. A column with actual dates works best, but any combination of categorical columns are supported. This determines the timeline.
--   One description column. This determines what is written in the cards.
+## Get started
 
-Optionally a third column could be used to color the cards, using either a categorical or a continuous (gradient) coloring expression.
-
-Every mod handles missing, corrupted and/or inconsistent data in different ways. It is advised to always review how the data is visualized.
-
-## Setting up the timeline
+All a timeline needs is something to put events in order and something to describe them. Give it a date (or any categorical column, if you don't have real dates) for **Time**, and a short piece of text for **Event**, and it lays out a scannable story of what happened when.
 
 Let's say we have data about some world events:
 
@@ -21,14 +18,14 @@ Let's say we have data about some world events:
 | Feb 14, 2021  | Something else happened | Neutral   |
 | March 8, 2021 | Something bad happened  | Negative  |
 
-A basic timeline can be configured to show these events over time by creating a Timeline with the following settings:
+A basic timeline can be configured to show these events over time with:
 
--   Time = Date: Year.Month.Day
--   Event = Event
+- Time = Date: Year.Month.Day
+- Event = Event
 
-Optionally you could also color the cards by another column (categorical or continuous), E.g.
+Add a splash of meaning by coloring the cards, using either a categorical or a continuous (gradient) expression, e.g.:
 
--   Color By = Sentiment
+- Color By = Sentiment
 
 The end result will look something like this:
 
@@ -38,51 +35,58 @@ The end result will look something like this:
 
 ### Time
 
-The time segments will be determined by the hierarchy on the time axis.
+The time segments are determined by the hierarchy on the Time axis. Drag the hierarchy slider (see [Adjusting the hierarchy](#adjusting-the-hierarchy)) to drill from years all the way down to individual days, or back out again.
 
-In the Spotfire Desktop the timeline will default to show the filtered range, meaning that it will include days regardless of whether or not there is an event for that day. This behavior can be changed in the time axis settings.
-
-In the Spotfire Web Client the timeline will show all filtered values, meaning that it will skip days for which there is no event.
+In Spotfire Desktop the timeline defaults to showing the filtered range, including days with no events. This can be changed in the time axis settings. In the Spotfire Web Client the timeline shows only filtered values, skipping days without events.
 
 ### Events
 
-The number of cards will be determined by the expression on the event axis and the color axis if categorical color is used.
+The number of cards is determined by the expression on the Event axis, and by the Color axis when categorical color is used.
 
 ### Styling
 
-The visualization will respond to changes in the Spotfire canvas style. Label fonts, sizes and the color of lines are determined by visualization canvas settings. The size of cards and time segments will adjust to the selected font size.
+The visualization responds to changes in the Spotfire canvas style. Label fonts, sizes, and line colors follow the visualization's canvas settings, and card and time-segment sizes adjust to match the selected font size.
 
-## Using the Timeline
+## Exploring the timeline
+
+| Action                                               | Result                                                          |
+| ---------------------------------------------------- | --------------------------------------------------------------- |
+| Click a card or time segment                         | Mark it, replacing the current marking                          |
+| Ctrl-click (Cmd-click on Mac) a card or time segment | Add or remove it from the current marking                       |
+| Click and drag across empty space                    | Draw a selection box and mark every card it touches             |
+| Click empty space                                    | Clear the marking                                               |
+| Hover a card                                         | Show its date and full description; bring it to front if hidden |
+| Ctrl+double-click (Cmd+double-click on Mac)          | Start or stop automatic scrolling                               |
 
 ### Marking
 
-Clicking on an event will mark that event in the timeline and in all other visualizations that uses the same marking. Clicking or dragging in the empty space between events will clear the marking. You can mark several events by Ctrl-clicking on them.
+Click a card to mark its event, or click a time segment — a month or a year, depending on the hierarchy currently shown — to mark every event within it. Marking updates every other visualization that shares the same marking.
 
-Clicking and dragging allow you to select multiple events.
+Ctrl-click (Cmd-click on Mac) to add or remove items from the current marking instead of replacing it; this works the same way for cards and time segments.
 
-Clicking on a time segment will mark all events within that time segment. E.g. If your timeline shows Year > Month > Day, you can mark all events within a year by clicking on the year segment or for a particular month by clicking on month segments. You can mark several time segments by Ctrl-clicking on them.
+Click and drag across empty space to draw a selection box and mark every card it touches. Clicking empty space without dragging clears the marking.
 
 A marked card is drawn on top of any overlapping unmarked cards.
 
 ### Tooltips
 
-Hovering over a card shows a Spotfire tooltip with its date and full description. This is especially useful when the card's own text is too long to fit and gets truncated.
+Hovering over a card shows a Spotfire tooltip with its date and full description — handy when the card's own text is too long to fit and gets truncated.
 
-Hovering over a card that's partially hidden behind another card also brings it to the front so it can be read in full, without disturbing which card stays on top once you move the mouse away.
+Hovering over a card that's partially hidden behind another also brings it to the front so it can be read in full, without disturbing which card stays on top once you move the mouse away.
 
 ### Adjusting the hierarchy
 
-If the timeline is configured to use a date hierarchy you can decide what level of the hierarchy to show by dragging the hierarchy slider.
+If the timeline is configured with a date hierarchy, drag the hierarchy slider to decide what level to show — drill from years down to individual days, or zoom back out.
 
-### Horizontal Scrolling
+### Horizontal scrolling
 
-If the timeline is wider than the visualization area, a scrollbar is available at the bottom of the visualization. It's hidden by default and only fades in while you hover over the visualization.
+If the timeline is wider than the visualization area, a scrollbar is available at the bottom. It's hidden by default and fades in while you hover over the visualization.
 
 The scrollbar can be operated in several ways:
 
--   Drag the handle to scroll to a specific position.
--   Click the left or right arrow buttons to step by one time segment at a time.
--   Click on the track on either side of the handle to page by roughly one handle-width.
--   Scroll the mouse wheel while hovering over the scrollbar.
+- Drag the handle to scroll to a specific position.
+- Click the left or right arrow buttons to step by one time segment at a time.
+- Click on the track on either side of the handle to page by roughly one handle-width.
+- Scroll the mouse wheel while hovering over the scrollbar.
 
-The visualization will scroll right automatically if you double click on it while holding down ctrl on Windows and the command key on Mac. Clicking anywhere will stop the automatic scrolling.
+For a hands-free ride through the whole timeline, Ctrl+double-click (Cmd+double-click on Mac) to start automatic scrolling. Double-click again the same way, or click anywhere, to stop it.
