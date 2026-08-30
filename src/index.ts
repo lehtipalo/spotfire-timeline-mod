@@ -508,6 +508,16 @@ window.Spotfire.initialize(async (mod) => {
          */
 
         function mouseDownHandler(event: MouseEvent) {
+            // Time markers own their marking via their own click handler (which respects
+            // ctrl/meta for add-to-marking). Starting the rectangle-selection tracking here
+            // too would make mouseUpHandler's own marking logic run first on mouseup - since
+            // a click point never intersects a card rect when it's over the timeline, that
+            // unconditionally clears all marking (regardless of ctrl/meta) before the time
+            // marker's click handler gets a chance to add to it.
+            if ((event.target as HTMLElement).closest(".timeMarker")) {
+                return;
+            }
+
             // markingOverlay isn't inside the scrolled content, so selection is tracked in
             // plain viewport coordinates (clientX/clientY) rather than content-space pixels.
             selection = {
