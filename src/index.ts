@@ -141,7 +141,12 @@ window.Spotfire.initialize(async (mod) => {
     .connector {background-color: ${context.styling.scales.line.stroke}}
     `;
 
-    const reader = mod.createReader(mod.visualization.data(), mod.windowSize(), mod.property<string>("orientation"));
+    const reader = mod.createReader(
+        mod.visualization.data(),
+        mod.windowSize(),
+        mod.property<string>("orientation"),
+        mod.property<string>("cardAlignment")
+    );
 
     reader.subscribe(render);
 
@@ -176,7 +181,12 @@ window.Spotfire.initialize(async (mod) => {
         }
     }
 
-    async function render(dataView: DataView, windowSize: Spotfire.Size, orientationProperty: ModProperty<string>) {
+    async function render(
+        dataView: DataView,
+        windowSize: Spotfire.Size,
+        orientationProperty: ModProperty<string>,
+        cardAlignmentProperty: ModProperty<string>
+    ) {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
         detachDragHandlers();
@@ -187,6 +197,11 @@ window.Spotfire.initialize(async (mod) => {
 
         const orientation: Orientation = orientationProperty.value<string>() === "vertical" ? "vertical" : "horizontal";
         const isHorizontal = orientation === "horizontal";
+        // "start"/"end" refer to the cross axis's low/high edge (top/bottom in horizontal
+        // mode, left/right in vertical) - orientation-agnostic, mirroring along/cross below.
+        const cardAlignmentValue = cardAlignmentProperty.value<string>();
+        const cardAlignment: "start" | "middle" | "end" =
+            cardAlignmentValue === "start" || cardAlignmentValue === "end" ? cardAlignmentValue : "middle";
         // The axis along which the timeline runs/scrolls, and the axis across which cards
         // stack away from it - horizontal maps along->x/cross->y, vertical is the mirror.
         const mainSize = isHorizontal ? windowSize.width : windowSize.height;
@@ -258,10 +273,18 @@ window.Spotfire.initialize(async (mod) => {
         timeSegmentSize = timeSegmentSize >= minimumTimeSegmentWidth ? timeSegmentSize : minimumTimeSegmentWidth;
         const timeSegmentsPerCard = Math.ceil((alongCardExtent + alongSpaceBetweenCards) / timeSegmentSize);
         const drawingAreaCrossSize = crossSize - 35;
+        const timelineCrossExtent = timelineLevelHeight * timeHierarchyDepth;
         // Centered within the actual visible (scrollbar-trimmed) drawing area, not the raw
         // window - centering on crossSize would push the timeline (and everything stacked
         // off it) 35px lower/righter than the clipped viewport actually has room for.
-        const timeLineCrossPos = drawingAreaCrossSize / 2 - (timelineLevelHeight * timeHierarchyDepth) / 2;
+        // In "start"/"end" alignment, all cards render on one side, so the timeline instead
+        // anchors near the opposite edge to free up the rest of the cross axis for stacking.
+        const timeLineCrossPos =
+            cardAlignment === "start"
+                ? crossSpaceBetweenCards
+                : cardAlignment === "end"
+                ? drawingAreaCrossSize - crossSpaceBetweenCards - timelineCrossExtent
+                : drawingAreaCrossSize / 2 - timelineCrossExtent / 2;
         const drawingAreaAlongSize = timeLeaves.length * timeSegmentSize + edgeMargin * 2;
         const timelineWidth = timeLeaves.length * timeSegmentSize;
         const timelineHeight = (timeHierarchyDepth + 1) * timelineLevelHeight;
@@ -308,14 +331,20 @@ window.Spotfire.initialize(async (mod) => {
         // actual visible drawing area (drawingAreaCrossSize), not the raw window - fitting
         // against crossSize would let the bottom/trailing-most row overflow into (and get
         // clipped by) the 35px strip reserved for the scrollbar.
+        // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
+        // every lane in a single group.
+        const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
+        const lanesPerGroup = Math.ceil(maxStackedCards / numAlignmentGroups);
         let cardSpacing = crossCardExtent + 4 + crossSpaceBetweenCards;
         let totalSpaceRequired =
-            cardSpacing * (2 * Math.ceil(maxStackedCards / 2)) + timelineLevelHeight * timeHierarchyDepth;
+            cardSpacing * (numAlignmentGroups * lanesPerGroup) + timelineLevelHeight * timeHierarchyDepth;
         cardSpacing =
             totalSpaceRequired < drawingAreaCrossSize
                 ? cardSpacing
-                : (drawingAreaCrossSize - timelineLevelHeight * timeHierarchyDepth - (crossCardExtent + 4) * 2) /
-                  (2 * Math.ceil(maxStackedCards / 2));
+                : (drawingAreaCrossSize -
+                      timelineLevelHeight * timeHierarchyDepth -
+                      (crossCardExtent + 4) * numAlignmentGroups) /
+                  (numAlignmentGroups * lanesPerGroup);
 
         /**
          * Update DOM
@@ -372,25 +401,57 @@ window.Spotfire.initialize(async (mod) => {
                         alignment: "Right",
                         autoClose: true,
                         onChange: (event) => {
-                            if (event.name === "orientation") {
-                                mod.property<string>("orientation").set(event.value);
+                            if (event.name === "orientationAlignment") {
+                                const [newOrientation, newCardAlignment] = (event.value as string).split("-");
+                                mod.property<string>("orientation").set(newOrientation);
+                                mod.property<string>("cardAlignment").set(newCardAlignment);
                             }
                         }
                     },
                     () => [
                         mod.controls.popout.section({
+                            heading: "Horizontal",
                             children: [
                                 mod.controls.popout.components.radioButton({
-                                    name: "orientation",
-                                    text: "Horizontal",
-                                    checked: orientation === "horizontal",
-                                    value: "horizontal"
+                                    name: "orientationAlignment",
+                                    text: "Top",
+                                    checked: orientation === "horizontal" && cardAlignment === "start",
+                                    value: "horizontal-start"
                                 }),
                                 mod.controls.popout.components.radioButton({
-                                    name: "orientation",
-                                    text: "Vertical",
-                                    checked: orientation === "vertical",
-                                    value: "vertical"
+                                    name: "orientationAlignment",
+                                    text: "Middle",
+                                    checked: orientation === "horizontal" && cardAlignment === "middle",
+                                    value: "horizontal-middle"
+                                }),
+                                mod.controls.popout.components.radioButton({
+                                    name: "orientationAlignment",
+                                    text: "Bottom",
+                                    checked: orientation === "horizontal" && cardAlignment === "end",
+                                    value: "horizontal-end"
+                                })
+                            ]
+                        }),
+                        mod.controls.popout.section({
+                            heading: "Vertical",
+                            children: [
+                                mod.controls.popout.components.radioButton({
+                                    name: "orientationAlignment",
+                                    text: "Left",
+                                    checked: orientation === "vertical" && cardAlignment === "start",
+                                    value: "vertical-start"
+                                }),
+                                mod.controls.popout.components.radioButton({
+                                    name: "orientationAlignment",
+                                    text: "Middle",
+                                    checked: orientation === "vertical" && cardAlignment === "middle",
+                                    value: "vertical-middle"
+                                }),
+                                mod.controls.popout.components.radioButton({
+                                    name: "orientationAlignment",
+                                    text: "Right",
+                                    checked: orientation === "vertical" && cardAlignment === "end",
+                                    value: "vertical-end"
                                 })
                             ]
                         })
@@ -710,9 +771,14 @@ window.Spotfire.initialize(async (mod) => {
             return edgeMargin + d.timePosition * timeSegmentSize - alongCardExtent / 2 + timeSegmentSize / 2;
         }
 
-        // Cards alternate between two groups - before the timeline (0) and after it (1) along
-        // the cross axis - and stack outward from the timeline in lanes within their group.
+        // In "middle" alignment cards alternate between two groups - before the timeline (0)
+        // and after it (1) along the cross axis - stacking outward from the timeline in lanes
+        // within their group. In "start"/"end" alignment all cards share a single group (the
+        // one on the side opposite the edge-anchored timeline - see timeLineCrossPos above),
+        // each taking its own lane rather than halving them across two groups.
         function laneInfo(verticalPosition: number) {
+            if (cardAlignment === "start") return { group: 1, lane: verticalPosition };
+            if (cardAlignment === "end") return { group: 0, lane: verticalPosition };
             return { group: verticalPosition % 2, lane: Math.floor(verticalPosition / 2) };
         }
 

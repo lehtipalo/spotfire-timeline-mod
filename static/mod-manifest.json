@@ -27,6 +27,9 @@
     "legend": {
         "defaultVisibility": "hidden"
     },
-    "properties": [{ "name": "orientation", "type": "string", "defaultValue": "horizontal" }],
+    "properties": [
+        { "name": "orientation", "type": "string", "defaultValue": "horizontal" },
+        { "name": "cardAlignment", "type": "string", "defaultValue": "middle" }
+    ],
     "files": ["index.html", "main.css", "bundle.js"]
 }
