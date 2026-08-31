@@ -39,11 +39,11 @@ The end result will look something like this:
 
 Hover over the visualization to reveal a settings button in the upper-right corner. Click it to choose an orientation and card alignment.
 
-- **Horizontal** (the default) — cards are stacked above and below a timeline that scrolls left and right.
+- **Horizontal** timeline goes from left to right
   - **Top** — cards are pinned above the timeline.
-  - **Middle** — cards alternate above and below the timeline.
+  - **Middle** — cards alternate above and below the timeline
   - **Bottom** — cards are pinned below the timeline.
-- **Vertical** — cards are stacked to the left and right of a timeline that scrolls up and down.
+- **Vertical** — timeline goes from the top to the bottom of the screen
   - **Left** — cards are pinned to the left of the timeline.
   - **Middle** — cards alternate on both sides of the timeline.
   - **Right** — cards are pinned to the right of the timeline.
