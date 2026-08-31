@@ -22,5 +22,4 @@
 -   Fixed an issue where the outermost card in the stack could be cut off by the scrollbar.
 -   Added a card alignment option - pin cards to one side of the timeline (top/bottom in horizontal layout, left/right in vertical layout).
 -   You can now scroll the timeline with the mouse wheel anywhere over the visualization.
--   Card spacing is now calculated per-card based on nearby crowding, rather than per-cluster - further reducing avoidable overlap between cards that aren't actually near each other in time.
--   Card size is now tied to the width of a time segment, so cards no longer overlap with unrelated events that merely happen to be nearby in time - only genuinely concurrent events need to share space. As a tradeoff, densely-packed timelines now take up more room and may need more scrolling than before.
+-   Card size is now tied to the width of a time segment, so cards no longer overlap unless they have to. As a tradeoff, densely-packed timelines now take up more room and may need more scrolling than before.
