@@ -51,11 +51,13 @@ const timelineScrollBar = scrollBarControl(modContainer);
 
 let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
-// Tracks the mousemove/mouseup listeners of an in-progress drag selection so a stale
-// drag from a previous render (with rows belonging to an already disposed DataView)
-// can be cancelled when a new render arrives before the user releases the mouse.
+// Tracks the mousemove/mouseup/blur listeners of an in-progress drag selection so a
+// stale drag from a previous render (with rows belonging to an already disposed
+// DataView) can be cancelled when a new render arrives before the user releases the
+// mouse.
 let activeMouseMoveHandler: ((event: MouseEvent) => void) | null = null;
 let activeMouseUpHandler: ((event: MouseEvent) => void) | null = null;
+let activeBlurHandler: (() => void) | null = null;
 
 function detachDragHandlers() {
     if (activeMouseMoveHandler) {
@@ -65,6 +67,10 @@ function detachDragHandlers() {
     if (activeMouseUpHandler) {
         document.removeEventListener("mouseup", activeMouseUpHandler);
         activeMouseUpHandler = null;
+    }
+    if (activeBlurHandler) {
+        window.removeEventListener("blur", activeBlurHandler);
+        activeBlurHandler = null;
     }
 }
 
@@ -788,13 +794,29 @@ window.Spotfire.initialize(async (mod) => {
             };
             activeMouseMoveHandler = mouseMoveHandler;
             activeMouseUpHandler = mouseUpHandler;
+            // Mods run in an iframe, so a mouseup that happens over another Spotfire panel
+            // (or outside the browser) never reaches this document - mouseMoveHandler's own
+            // event.buttons check below covers the case where the cursor comes back over the
+            // mod, but if it never does, losing focus is usually the only signal we get that
+            // the drag ended. Cancel (without committing a marking, since we can't tell if the
+            // button was actually released) rather than leaving the overlay/listeners stuck.
+            activeBlurHandler = cancelDrag;
             document.addEventListener("mousemove", activeMouseMoveHandler);
             document.addEventListener("mouseup", activeMouseUpHandler);
+            window.addEventListener("blur", activeBlurHandler);
         }
 
         function mouseMoveHandler(event: MouseEvent) {
             selection.x2 = event.clientX;
             selection.y2 = event.clientY;
+
+            // The primary button is no longer pressed, so it must have been released while
+            // the cursor was outside the iframe (see the blur-handler comment in
+            // mouseDownHandler) - finish the drag now instead of leaving it stuck.
+            if (event.buttons === 0) {
+                finishDrag(event);
+                return;
+            }
 
             markingOverlay
                 .attr("class", "activeMarking")
@@ -804,13 +826,21 @@ window.Spotfire.initialize(async (mod) => {
                 .style("height", `${Math.abs(selection.y2 - selection.y1)}`);
         }
 
-        function mouseUpHandler(event: MouseEvent) {
+        function resetMarkingOverlay() {
             markingOverlay
                 .style("left", `${0}`)
                 .style("top", `${0}`)
                 .style("width", `${0}`)
                 .style("height", `${0}`)
                 .attr("class", "inactiveMarking");
+        }
+
+        function mouseUpHandler(event: MouseEvent) {
+            finishDrag(event);
+        }
+
+        function finishDrag(event: MouseEvent) {
+            resetMarkingOverlay();
 
             // Cards are positioned in scrollContent's content-space; shift by the current
             // scroll offset (which only ever applies to the along-timeline axis) to compare
@@ -848,6 +878,14 @@ window.Spotfire.initialize(async (mod) => {
                 dataView.clearMarking();
             }
 
+            detachDragHandlers();
+        }
+
+        // Only reachable via the blur listener - the button state is unknown at that point
+        // (blur can also fire without a mouse release, e.g. alt-tabbing), so just reset the
+        // overlay/listeners without touching marking.
+        function cancelDrag() {
+            resetMarkingOverlay();
             detachDragHandlers();
         }
 
