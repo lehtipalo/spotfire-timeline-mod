@@ -23,3 +23,4 @@
 -   Fixed an issue where dragging the scrollbar could stop noticeably short of the last card, especially with a lot of data.
 -   Fixed the timeline's left and right edge margins so they're now equal - previously there was a bit more empty space on the left than on the right.
 -   Fixed an issue where the outermost card in the stack could be cut off by the scrollbar
+-   Fixed an issue where the marking-rectangle selection could get stuck on screen and out of sync with the actual marking if you released the mouse button outside the visualization.
