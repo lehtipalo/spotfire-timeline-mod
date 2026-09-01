@@ -1,4 +1,4 @@
-# Timeline Mod for TIBCO Spotfire®
+# Timeline Mod for Spotfire®
 
 Turn a list of dated events into a story you can scan at a glance.
 
@@ -39,24 +39,24 @@ Build Project
 
 In a terminal window:
 
--   `npm install`
--   `npm run build-watch`
+- `npm install`
+- `npm run build-watch`
 
 In a new terminal window
 
--   `npm run server`
+- `npm run server`
 
 ## Build for production
 
 The development version of bundle.js is uncompressed and not suitable for end users. Run the following command to compress the bundle.
 
--   `npm run build`
+- `npm run build`
 
 ## More information about TIBCO Spotfire® Mods
 
--   [Spotfire® Mods on the TIBCO Community Exchange](https://community.tibco.com/exchange): A safe and trusted place to discover ready-to-use mods
--   [Spotfire® Mods Developer Documentation](https://tibcosoftware.github.io/spotfire-mods/docs/): Introduction and tutorials for mods developers
--   [Spotfire® Mods by TIBCO Spotfire®](https://github.com/TIBCOSoftware/spotfire-mods/releases/latest): A public repository for example projects
+- [Spotfire® Mods on the TIBCO Community Exchange](https://community.tibco.com/exchange): A safe and trusted place to discover ready-to-use mods
+- [Spotfire® Mods Developer Documentation](https://tibcosoftware.github.io/spotfire-mods/docs/): Introduction and tutorials for mods developers
+- [Spotfire® Mods by TIBCO Spotfire®](https://github.com/TIBCOSoftware/spotfire-mods/releases/latest): A public repository for example projects
 
 ## Version history
 
