@@ -52,7 +52,7 @@ The development version of bundle.js is uncompressed and not suitable for end us
 
 - `npm run build`
 
-## More information about TIBCO Spotfire® Mods
+## More information about Spotfire® Mods
 
 - [Spotfire® Mods on the TIBCO Community Exchange](https://community.tibco.com/exchange): A safe and trusted place to discover ready-to-use mods
 - [Spotfire® Mods Developer Documentation](https://tibcosoftware.github.io/spotfire-mods/docs/): Introduction and tutorials for mods developers
