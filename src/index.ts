@@ -464,8 +464,11 @@ window.Spotfire.initialize(async (mod) => {
         const settingsButtonSize = 24;
         // A plain 8px top-align collides with Spotfire's floating action button (FAB), which
         // renders in the same top-right corner in horizontal mode - SIP mods deliberately
-        // reserve clearance there instead of top-aligning their own config button.
-        const settingsButtonTop = isHorizontal ? 32 : 0;
+        // reserve clearance there instead of top-aligning their own config button. The FAB's
+        // own container sits at top:16px in this same coordinate space (confirmed via
+        // devtools); its buttons are the standard 32px Spotfire action-button size, so this
+        // clears its bottom edge (~48px) with a small margin.
+        const settingsButtonTop = isHorizontal ? 56 : 0;
         const settingsButtonRight = isHorizontal ? 8 : scrollBarHeight + 8;
 
         let settingsButton = modContainer
