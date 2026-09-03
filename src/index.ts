@@ -473,6 +473,9 @@ window.Spotfire.initialize(async (mod) => {
             // uses the theme's primary foreground color rather than the gridline color.
             .style("color", uiChromeColor)
             .style("border-color", uiChromeColor)
+            // Without a fill, the timeline underneath shows through the button wherever
+            // it overlaps - give it the mod's own background so it reads as opaque chrome.
+            .style("background-color", context.styling.general.backgroundColor)
             .on("click", () => {
                 mod.controls.popout.show(
                     {
@@ -693,9 +696,13 @@ window.Spotfire.initialize(async (mod) => {
 
             // Time markers
 
+            // d.x0/d.x1 are timeline-local (relative to #timeline's own box, which sits at
+            // edgeMargin within scrollContent - see the timeline .style(alongProp, ...) call
+            // above). renderedRangeStart/End are in scrollContent-space, so edgeMargin has to
+            // be added here to compare like with like, matching calculateCardAlongPos.
             let visibleMarkers = displayHierarchy.filter(
                 (d: HierarchyRectangularNode<DataViewHierarchyNode>) =>
-                    d.x1 >= renderedRangeStart && d.x0 <= renderedRangeEnd
+                    d.x1 + edgeMargin >= renderedRangeStart && d.x0 + edgeMargin <= renderedRangeEnd
             );
 
             // Level 0 (coarsest) normally renders at the timeline block's near edge and the
