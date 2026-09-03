@@ -167,10 +167,19 @@ body {
     user-select: none;
     cursor: default;
     text-align: center;
-    font-style: italic;
     display: flex;
     justify-content: center;
     align-items: center;
+}
+
+.overflow-label-vertical {
+    /* The cross-axis box is only overflowLabelCrossSize wide - fine for one horizontal
+       line of text under a horizontal timeline, but far too narrow in vertical mode. Flip
+       it to run along the (much roomier) along-axis instead, same as .timeMarker-vertical.
+       Unlike .timeMarker, .overflow-label centers via flexbox rather than line-height, so
+       no extra centering adjustment is needed here - flex alignment applies the same way
+       regardless of writing-mode. */
+    writing-mode: vertical-rl;
 }
 
 .connector {

@@ -428,7 +428,7 @@ window.Spotfire.initialize(async (mod) => {
         // pass below. Mirrors timelineLevelHeight's own fontSize*2 sizing for a single line.
         const minReadableCardSpacing = fontSize * 2 + 4;
         // The overflow label (see the capping pass and calculateOverflowLabelCrossPos
-        // below) is plain text, not a card - it only needs room for its own short "+N more"
+        // below) is plain text, not a card - it only needs room for its own short "+N"
         // line, not a full card's worth of readable space.
         const overflowLabelCrossSize = fontSize + 4;
         const overflowLabelGap = 4;
@@ -909,6 +909,10 @@ window.Spotfire.initialize(async (mod) => {
                 )
                 .join("div")
                 .attr("class", "overflow-label")
+                // Same reasoning as .timeMarker-vertical above: the cross-axis box is too
+                // narrow for horizontal text once the timeline is vertical, so rotate it to
+                // run along the roomier along-axis instead.
+                .classed("overflow-label-vertical", !isHorizontal)
                 .on("mouseenter", (e, l: OverflowLabel) => {
                     mod.controls.tooltip.show(
                         `${l.row.categorical(timeAxisName).formattedValue()}\n${l.count} more events`
@@ -917,7 +921,7 @@ window.Spotfire.initialize(async (mod) => {
                 .on("mouseleave", () => {
                     mod.controls.tooltip.hide();
                 })
-                .text((l) => `+${l.count} more`)
+                .text((l) => `+${l.count}`)
                 .style(alongProp, (l: OverflowLabel) => `${calculateCardAlongPos(l)}px`)
                 .style(crossProp, (l: OverflowLabel) => `${calculateOverflowLabelCrossPos(l)}px`)
                 .style(alongSizeProp, `${alongCardExtent}px`)
