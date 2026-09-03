@@ -4,7 +4,7 @@ body {
     overflow-x:hidden;
 }
 
-#modcontainer {
+#mod-container {
     height: 100%;
     width: 100%;
     overflow-x:auto;

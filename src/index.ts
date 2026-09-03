@@ -164,6 +164,7 @@ window.Spotfire.initialize(async (mod) => {
                 return this.id !== "scrollBar" && this.id !== "settingsButton";
             })
             .remove();
+        needsScroll = false;
         timelineScrollBar.hide();
         updateSettingsButtonVisibility();
     }
@@ -550,23 +551,25 @@ window.Spotfire.initialize(async (mod) => {
         // Drawing Layer - fixed to the viewport. scrollContent is the full (possibly larger)
         // content that gets panned along the timeline axis via a CSS transform.
         drawingLayer
-            .style("left", `${0}`)
-            .style("top", `${0}`)
-            .style(crossSizeProp, `${drawingAreaCrossSize}`)
-            .style(alongSizeProp, `${mainSize}`)
+            .style("left", `${0}px`)
+            .style("top", `${0}px`)
+            .style(crossSizeProp, `${drawingAreaCrossSize}px`)
+            .style(alongSizeProp, `${mainSize}px`)
             .on("mousedown", mouseDownHandler)
             .on("dblclick", doubleclickHandler)
             .on("wheel", (event: WheelEvent) => timelineScrollBar.handleWheel(event));
 
-        scrollContent.style(crossSizeProp, `${drawingAreaCrossSize}`).style(alongSizeProp, `${drawingAreaAlongSize}`);
+        scrollContent
+            .style(crossSizeProp, `${drawingAreaCrossSize}px`)
+            .style(alongSizeProp, `${drawingAreaAlongSize}px`);
 
         // Timeline
 
         timeline
-            .style(alongProp, (d) => edgeMargin)
-            .style(crossProp, (d) => timeLineCrossPos)
-            .style(alongSizeProp, (d) => timeLeaves.length * timeSegmentSize + 2)
-            .style(crossSizeProp, (d) => timelineLevelHeight * timeHierarchyDepth + 2);
+            .style(alongProp, (d) => `${edgeMargin}px`)
+            .style(crossProp, (d) => `${timeLineCrossPos}px`)
+            .style(alongSizeProp, (d) => `${timeLeaves.length * timeSegmentSize + 2}px`)
+            .style(crossSizeProp, (d) => `${timelineLevelHeight * timeHierarchyDepth + 2}px`);
 
         // create a d3 hierarchy with the width of each timesegment proportional to the number of descendants
         let hierarchyRootNode: HierarchyNode<DataViewHierarchyNode> = hierarchy(timeHierarchyRoot);
