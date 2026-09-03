@@ -681,10 +681,11 @@ window.Spotfire.initialize(async (mod) => {
                 .attr("class", "card")
                 .attr("draggable", "false")
                 .classed("card-marked", (d) => d.row.isMarked())
-                .on("click", (e, d) => {
-                    d.row.mark(e.ctrlKey || e.metaKey ? "ToggleOrAdd" : "Replace");
-                    e.stopPropagation();
-                })
+                // Marking is handled entirely by finishDrag()'s rectangle hit-test - a plain
+                // click is just a zero-size drag, so it's already covered there. A separate
+                // click handler here would double-mark the row (once from the mousedown-
+                // triggered drag, once from the click that follows it), which cancels out
+                // Ctrl/Cmd's toggle-or-add instead of applying it.
                 .on("mouseenter", (e, d: Card) => {
                     mod.controls.tooltip.show(`${d.row.categorical(timeAxisName).formattedValue()}\n${d.description}`);
                 })
