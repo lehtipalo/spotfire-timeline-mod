@@ -20,10 +20,11 @@ interface Card {
 }
 
 // A same-timePosition run too dense to show individually even at the readability floor
-// (see the capping pass below) keeps a real card in the frontmost lane and folds the rest
-// into one of these - plain text anchored past that card's far edge, not a synthetic card
-// needing its own lane. verticalPosition/cardSpacing are borrowed from that frontmost card
-// so its position can be reused as-is (see calculateOverflowLabelCrossPos).
+// (see the capping pass below) keeps a budget of real cards and folds the rest into one of
+// these - plain text anchored past the outermost surviving card's far edge (the lane
+// nothing else in the stack extends past - see the capping pass's own comment), not a
+// synthetic card needing its own lane. verticalPosition/cardSpacing are borrowed from that
+// outermost card so its position can be reused as-is (see calculateOverflowLabelCrossPos).
 interface OverflowLabel {
     timePosition: number;
     verticalPosition: number;
@@ -325,7 +326,6 @@ window.Spotfire.initialize(async (mod) => {
         // first/last segment to spill into - exactly half the along-axis card size, per the
         // derivation above.
         const edgeMargin = alongCardExtent / 2;
-        const timeSegmentsPerCard = alongSegmentsPerCard;
         const drawingAreaCrossSize = crossSize - 35;
         const timelineCrossExtent = timelineLevelHeight * timeHierarchyDepth;
         // Centered within the actual visible (scrollbar-trimmed) drawing area, not the raw
@@ -359,8 +359,8 @@ window.Spotfire.initialize(async (mod) => {
         // its 2 pools (see bandOffset) exist purely to stop different dates' clusters from
         // fighting over the same lanes and reading as tangled together - but that can only
         // happen in horizontal orientation, where a card is 2 time segments wide
-        // (timeSegmentsPerCard) so near-but-different dates can still visually collide. In
-        // vertical orientation timeSegmentsPerCard is 1, so only cards sharing the *exact*
+        // (alongSegmentsPerCard) so near-but-different dates can still visually collide. In
+        // vertical orientation alongSegmentsPerCard is 1, so only cards sharing the *exact*
         // same date ever compete for a lane - different dates already get their own,
         // entirely separate row - making the second band pure unused space with nothing to
         // protect against.
@@ -369,16 +369,10 @@ window.Spotfire.initialize(async (mod) => {
         // Populated by the capping pass below, for same-timePosition runs too dense to show
         // individually even at the readability floor.
         let overflowLabels: OverflowLabel[] = [];
-        // One independent lane pool per group - see numAlignmentGroups above for why they're
-        // split, and usesPlusDirection/bandOffset further down for how "middle" vs
-        // "start"/"end" place the groups differently. Each map tracks, per lane, the time
-        // index of the last card placed there in that group - a lane is free again once a
-        // new card is far enough past it (>= timeSegmentsPerCard) to guarantee no overlap.
-        let lastPositionByGroup: Map<number, number>[] = [new Map(), new Map()];
-        // Concurrent-lane count within its own group at the moment each card was placed
-        // (the batch's own highest lane + 1 - see below), in card order. This is what
-        // cardSpacingForPeak sizes each card's own spacing from below - see the spacing
-        // pass's own comment for why it's exact, not an estimate.
+        // Concurrent-lane count within its own group at the moment each card was placed (its
+        // block's own size - see below). This is what cardSpacingForPeak sizes each card's
+        // own spacing from below - see the spacing pass's own comment for why it's exact,
+        // not an estimate.
         let rawPeakAtInsertion: number[] = [];
 
         // Which of the 2 lane pools a timePosition lands on. Each leaf node is inherently
@@ -397,37 +391,25 @@ window.Spotfire.initialize(async (mod) => {
             let group = currentGroup;
             if (numAlignmentGroups === 2) currentGroup = 1 - currentGroup;
 
-            // All of this timePosition's cards mutually overlap (same instant), so they're
-            // placed as one contiguous block of lanes rather than each finding its own free
-            // lane independently - one card at a time could land a date's later cards past a
-            // gap still held by some other, merely-nearby date, splitting one date's own
-            // cards apart from each other for no reason. Lowest starting lane such that the
-            // whole block [laneStart, laneStart + count) is free:
-            let lastPosition = lastPositionByGroup[group];
+            // All of this timePosition's cards mutually overlap (same instant), so they
+            // occupy one contiguous block of lanes, [0, count), starting right at the bottom
+            // of their group's pool rather than searching for free lanes - a leaf can only
+            // ever visually overlap its immediate neighbor leaf (see numAlignmentGroups
+            // above: a card is alongSegmentsPerCard segments wide, so that's the farthest
+            // apart two leaves can be and still touch), and currentGroup alternates every
+            // leaf, so that one possible neighbor always lands in the *other* group. Nothing
+            // in this leaf's own group can still be "on screen" at the same time, so lane 0
+            // is always free for it.
             let count = eventRows.length;
-            let laneStart = 0;
-            let blockFree: boolean;
-            do {
-                blockFree = true;
-                for (let k = 0; k < count; k++) {
-                    let occupiedUntil = lastPosition.get(laneStart + k);
-                    if (occupiedUntil != undefined && index - occupiedUntil < timeSegmentsPerCard) {
-                        laneStart = laneStart + k + 1;
-                        blockFree = false;
-                        break;
-                    }
-                }
-            } while (!blockFree);
 
             eventRows.forEach((row, k) => {
-                lastPosition.set(laneStart + k, index);
                 // Every card in this block reflects the block's own full height, not its
                 // individual position within it - they're all equally, mutually concurrent.
-                rawPeakAtInsertion.push(laneStart + count);
+                rawPeakAtInsertion.push(count);
 
                 cards.push({
                     description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
-                    verticalPosition: vpFor(group, laneStart + k),
+                    verticalPosition: vpFor(group, k),
                     cardSpacing: 0,
                     timePosition: index,
                     color: row.color(),
@@ -518,10 +500,12 @@ window.Spotfire.initialize(async (mod) => {
         // in non-decreasing timePosition order, so equal-timePosition cards are contiguous
         // and cheap to find as maximal runs.
         //
-        // Frontmost lane differs by direction (see usesPlusDirection): a "plus direction"
-        // group's cross-axis coordinate increases with lane, so its frontmost, least-
-        // occluded lane is the outermost one, budget-1; a "minus direction" group's
-        // decreases with lane, so its frontmost lane is 0 instead.
+        // The overflow label has to clear the *entire* visible stack, not just whichever
+        // survivor happens to be least-occluded in z-order (that's lane 0, not budget - 1,
+        // for a "minus direction" group - see usesPlusDirection/cardZIndex). Regardless of
+        // direction, the lane nothing else in the stack extends past is always the outermost
+        // one, budget - 1, since calculateCardCrossPos places every lane strictly farther
+        // from the timeline than the one before it.
         //
         // budget is hoisted out of the run-scan loop below since it depends only on
         // constants fixed for this whole render pass (drawingAreaCrossSize,
@@ -560,31 +544,34 @@ window.Spotfire.initialize(async (mod) => {
                             c.fixedSpacing = minReadableCardSpacing;
                         });
                         replacement.push(...survivors);
-                        const frontCard = survivors[usesPlusDirection(group) ? budget - 1 : 0];
+                        const outermostSurvivor = survivors[budget - 1];
                         overflowLabels.push({
-                            timePosition: frontCard.timePosition,
-                            verticalPosition: frontCard.verticalPosition,
-                            // frontCard.cardSpacing isn't resolved yet at this point in the
-                            // pipeline (only fixedSpacing, set just above) - minReadableCardSpacing
-                            // is exactly what it'll end up being.
+                            timePosition: outermostSurvivor.timePosition,
+                            verticalPosition: outermostSurvivor.verticalPosition,
+                            // outermostSurvivor.cardSpacing isn't resolved yet at this point in
+                            // the pipeline (only fixedSpacing, set just above) -
+                            // minReadableCardSpacing is exactly what it'll end up being.
                             cardSpacing: minReadableCardSpacing,
                             count: hidden.length,
                             row: hidden[0].row
                         });
                     }
                     cards.splice(runStart, runLength, ...replacement);
-                    rawPeakAtInsertion.splice(runStart, runLength, ...replacement.map(() => runLength));
+                    // Every entry in `replacement` already carries fixedSpacing (set above),
+                    // which short-circuits the read of rawPeakAtInsertion in the spacing pass
+                    // below - so only the length needs to stay aligned with `cards` here, not
+                    // the values.
+                    rawPeakAtInsertion.splice(runStart, runLength, ...new Array(replacement.length));
                     runEnd = runStart + replacement.length;
                 }
                 runStart = runEnd;
             }
         }
         // Each card's spacing comes straight from its own leaf's block height
-        // (rawPeakAtInsertion, set above cards.push) - no neighbor search needed. The
-        // per-group split there means currentGroup alternates on every populated leaf, so
-        // any other same-group leaf is always >= timeSegmentsPerCard raw positions away,
-        // the same distance beyond which two cards can never visually overlap. So this
-        // card's own block already *is* the worst-case concurrency nearby, exactly.
+        // (rawPeakAtInsertion, set above cards.push) - no neighbor search needed. As the
+        // comment above cards.push notes, a leaf's block never shares its group's lanes with
+        // any other still-visible leaf, so this card's own block already *is* the worst-case
+        // concurrency nearby, exactly.
         cards.forEach((card, i) => {
             if (card.fixedSpacing != undefined) {
                 // Already resolved by the capping pass above.
