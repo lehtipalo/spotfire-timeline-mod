@@ -23,6 +23,56 @@ interface Rect {
     y2: number;
 }
 
+// Minimal binary min-heap, used by the lane allocator below to pick the smallest
+// currently-free lane in O(log n) instead of scanning every lane per card - see issue #33.
+class MinHeap<T> {
+    private items: T[] = [];
+    constructor(private readonly less: (a: T, b: T) => boolean) {}
+
+    get length() {
+        return this.items.length;
+    }
+
+    peek(): T {
+        return this.items[0];
+    }
+
+    push(item: T) {
+        const items = this.items;
+        items.push(item);
+        let i = items.length - 1;
+        while (i > 0) {
+            const parent = (i - 1) >> 1;
+            if (this.less(items[i], items[parent])) {
+                [items[i], items[parent]] = [items[parent], items[i]];
+                i = parent;
+            } else break;
+        }
+    }
+
+    pop(): T {
+        const items = this.items;
+        const top = items[0];
+        const last = items.pop()!;
+        if (items.length > 0) {
+            items[0] = last;
+            let i = 0;
+            const n = items.length;
+            while (true) {
+                const l = 2 * i + 1;
+                const r = 2 * i + 2;
+                let smallest = i;
+                if (l < n && this.less(items[l], items[smallest])) smallest = l;
+                if (r < n && this.less(items[r], items[smallest])) smallest = r;
+                if (smallest === i) break;
+                [items[i], items[smallest]] = [items[smallest], items[i]];
+                i = smallest;
+            }
+        }
+        return top;
+    }
+}
+
 /**
  * Constants
  */
@@ -339,10 +389,18 @@ window.Spotfire.initialize(async (mod) => {
         scrollValue = Math.min(scrollValue, maxScrollValue);
 
         let cards: Card[] = [];
-        // Tracks, per lane, the time index of the last card placed there - a lane is free
-        // again once a new card is far enough past it (>= timeSegmentsPerCard) to guarantee
-        // no overlap.
-        let lastPosition = new Map();
+        // Lane allocator. Cards arrive in non-decreasing timePosition order (Spotfire hands
+        // leaves back in time order), so once a lane is claimed it can only be freed by time
+        // moving forward past it - classic "meeting room" interval scheduling. `occupied`
+        // holds, per currently-claimed lane, the time index at which it frees up again;
+        // `freeLanes` holds lanes that are free right now. Draining `occupied` into
+        // `freeLanes` as each card's index passes their freeAt, then always taking the
+        // smallest free lane (or minting a new one via nextLane), reproduces the "scan lanes
+        // from 0 up, take the first free one" selection exactly, but in O(log n) per card
+        // instead of O(n) - see issue #33.
+        let occupied = new MinHeap<{ freeAt: number; lane: number }>((a, b) => a.freeAt < b.freeAt);
+        let freeLanes = new MinHeap<number>((a, b) => a < b);
+        let nextLane = 0;
         // Concurrent-lane count at the moment each card was placed (its own lane index + 1),
         // in card order. Seeds the local-peak search below rather than one peak shared by
         // every card that ever transitively chained together.
@@ -353,11 +411,11 @@ window.Spotfire.initialize(async (mod) => {
                 if (hasEventAxis && row.categorical(eventAxisName).formattedValue() != "") {
                     let index = row.categorical(timeAxisName).leafIndex;
 
-                    let vp = 0;
-                    while (lastPosition.get(vp) != undefined && index - lastPosition.get(vp) < timeSegmentsPerCard) {
-                        vp++;
+                    while (occupied.length > 0 && occupied.peek().freeAt <= index) {
+                        freeLanes.push(occupied.pop().lane);
                     }
-                    lastPosition.set(vp, index);
+                    let vp = freeLanes.length > 0 ? freeLanes.pop() : nextLane++;
+                    occupied.push({ freeAt: index + timeSegmentsPerCard, lane: vp });
                     rawPeakAtInsertion.push(vp + 1);
 
                     cards.push({
@@ -415,19 +473,35 @@ window.Spotfire.initialize(async (mod) => {
         // directly overlap when they share the exact same timePosition, in which case both
         // see the identical neighbor set (each other), so this collapses to an exact
         // group-by-timePosition peak with no approximation.
+        //
+        // Computed as a sliding-window maximum: cards are already sorted by timePosition, so
+        // each card's window [lo, hi] only ever grows forward as i increases - both bounds are
+        // monotonic across the whole pass. A monotonic deque of indices (rawPeakAtInsertion
+        // decreasing front-to-back) tracks the running max in O(1) amortized per step, making
+        // this O(n) total instead of O(n) rescanned per card - see issue #33.
+        let peakOf: number[] = new Array(cards.length);
+        {
+            let lo = 0;
+            let hi = -1;
+            const deque: number[] = []; // indices; rawPeakAtInsertion[deque[k]] decreasing
+            let dequeHead = 0;
+            for (let i = 0; i < cards.length; i++) {
+                while (hi + 1 < cards.length && cards[hi + 1].timePosition - cards[i].timePosition < timeSegmentsPerCard) {
+                    hi++;
+                    while (deque.length > dequeHead && rawPeakAtInsertion[deque[deque.length - 1]] <= rawPeakAtInsertion[hi]) {
+                        deque.pop();
+                    }
+                    deque.push(hi);
+                }
+                while (cards[i].timePosition - cards[lo].timePosition >= timeSegmentsPerCard) {
+                    if (dequeHead < deque.length && deque[dequeHead] === lo) dequeHead++;
+                    lo++;
+                }
+                peakOf[i] = rawPeakAtInsertion[deque[dequeHead]];
+            }
+        }
         cards.forEach((card, i) => {
-            let peak = rawPeakAtInsertion[i];
-            for (let j = i - 1; j >= 0 && card.timePosition - cards[j].timePosition < timeSegmentsPerCard; j--) {
-                peak = Math.max(peak, rawPeakAtInsertion[j]);
-            }
-            for (
-                let j = i + 1;
-                j < cards.length && cards[j].timePosition - card.timePosition < timeSegmentsPerCard;
-                j++
-            ) {
-                peak = Math.max(peak, rawPeakAtInsertion[j]);
-            }
-            card.cardSpacing = cardSpacingForPeak(peak);
+            card.cardSpacing = cardSpacingForPeak(peakOf[i]);
         });
 
         /**
