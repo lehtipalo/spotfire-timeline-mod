@@ -895,7 +895,7 @@ window.Spotfire.initialize(async (mod) => {
                     c.row.mark(event.ctrlKey || event.metaKey ? "ToggleOrAdd" : "Replace");
                 });
                 event.stopPropagation();
-            } else {
+            } else if (!(event.ctrlKey || event.metaKey)) {
                 dataView.clearMarking();
             }
 
