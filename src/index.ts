@@ -140,6 +140,10 @@ window.Spotfire.initialize(async (mod) => {
     .timeMarker {border-color: ${context.styling.scales.line.stroke}}
     .timeline {border-color: ${context.styling.scales.line.stroke}}
     .connector {background-color: ${context.styling.scales.line.stroke}}
+    /* Outline ring on hover, matching the highlight native Spotfire visualizations (e.g.
+       scatter plot markers, bar chart bars) show on their marks. Layered on top of the
+       card's own elevation shadow (from .card in main.css) rather than replacing it. */
+    .card:hover { box-shadow: 0 0 0 2px ${uiChromeColor}, 0px 2px 5px 0px rgba(0,0,0,0.12), 0px 1px 2px 0px rgba(0,0,0,0.24); }
     `;
 
     const reader = mod.createReader(
@@ -458,7 +462,10 @@ window.Spotfire.initialize(async (mod) => {
         // top-right corner. In vertical mode it occupies the whole right edge, so the button
         // moves to sit just left of it, top-aligned with the scrollbar's own top (0).
         const settingsButtonSize = 24;
-        const settingsButtonTop = isHorizontal ? 8 : 0;
+        // A plain 8px top-align collides with Spotfire's floating action button (FAB), which
+        // renders in the same top-right corner in horizontal mode - SIP mods deliberately
+        // reserve clearance there instead of top-aligning their own config button.
+        const settingsButtonTop = isHorizontal ? 32 : 0;
         const settingsButtonRight = isHorizontal ? 8 : scrollBarHeight + 8;
 
         let settingsButton = modContainer
