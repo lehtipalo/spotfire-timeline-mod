@@ -137,6 +137,13 @@ body {
 }
 
 .card {
+    /* index.ts's layout math (reachFor, fitWithinCeiling, etc.) sizes every card by the
+       cardWidth/cardHeight set below via inline style and treats that as the card's whole
+       rendered footprint. Without border-box, the 2px padding would render on top of that
+       (content-box adds it to the specified size instead of carving it out), making the
+       actual box 4px taller/wider than the layout math assumes - enough to clip a card
+       sitting flush against the drawing area's own edge. */
+    box-sizing: border-box;
     text-overflow: ellipsis;
     user-select: none;
     -webkit-user-drag: none;

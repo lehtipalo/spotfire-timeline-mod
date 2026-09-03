@@ -8,27 +8,30 @@ export type Orientation = "horizontal" | "vertical";
 interface Card {
     timePosition: number;
     verticalPosition: number;
-    // Cross-axis lane pitch for this card - see cardSpacingForPeak below for how it's
-    // derived. Filled in after verticalPosition is assigned.
+    // Cross-axis lane pitch for this card - see fitWithinCeiling below for how it's derived.
     cardSpacing: number;
+    // How far this card's group starts from the timeline, beyond the lane*cardSpacing term -
+    // 0 for every "middle" card and a "start"/"end" near (group 0) card, since those always
+    // render flush against the timeline; for a "start"/"end" far (group 1) card, however much
+    // of its side the neighboring near leaf(s) that can actually touch it used - see the
+    // far-leaf resolution pass below.
+    crossOffset: number;
     description: string;
     color: DataViewColorInfo;
     row: DataViewRow;
-    // Set by the capping pass on entries it already resolved a spacing for, so the
-    // per-card spacing pass below doesn't recompute (and potentially override) it.
-    fixedSpacing?: number;
 }
 
 // A same-timePosition run too dense to show individually even at the readability floor
-// (see the capping pass below) keeps a budget of real cards and folds the rest into one of
-// these - plain text anchored past the outermost surviving card's far edge (the lane
-// nothing else in the stack extends past - see the capping pass's own comment), not a
-// synthetic card needing its own lane. verticalPosition/cardSpacing are borrowed from that
-// outermost card so its position can be reused as-is (see calculateOverflowLabelCrossPos).
+// (see fitWithinCeiling below) keeps a budget of real cards and folds the rest into one of these -
+// plain text anchored past the outermost surviving card's far edge (the lane nothing else in
+// the stack extends past), not a synthetic card needing its own lane. verticalPosition/
+// cardSpacing/crossOffset are borrowed from that outermost card so its position can be reused
+// as-is (see calculateOverflowLabelCrossPos).
 interface OverflowLabel {
     timePosition: number;
     verticalPosition: number;
     cardSpacing: number;
+    crossOffset: number;
     count: number;
     // Borrowed from one of the folded-in cards, used only to read the shared timePosition's
     // formatted time label for this label's tooltip.
@@ -356,115 +359,125 @@ window.Spotfire.initialize(async (mod) => {
 
         // Whether cards split across 2 independent lane pools at all. "middle" alignment
         // always does - it has 2 physical sides to use. "start"/"end" only has one side, so
-        // its 2 pools (see bandOffset) exist purely to stop different dates' clusters from
-        // fighting over the same lanes and reading as tangled together - but that can only
-        // happen in horizontal orientation, where a card is 2 time segments wide
-        // (alongSegmentsPerCard) so near-but-different dates can still visually collide. In
-        // vertical orientation alongSegmentsPerCard is 1, so only cards sharing the *exact*
-        // same date ever compete for a lane - different dates already get their own,
-        // entirely separate row - making the second band pure unused space with nothing to
-        // protect against.
+        // its 2 pools exist purely to stop different dates' clusters from fighting over the
+        // same lanes and reading as tangled together - but that can only happen in
+        // horizontal orientation, where a card is 2 time segments wide (alongSegmentsPerCard)
+        // so near-but-different dates can still visually collide. In vertical orientation
+        // alongSegmentsPerCard is 1, so only cards sharing the *exact* same date ever compete
+        // for a lane - different dates already get their own, entirely separate row - making
+        // the second band pure unused space with nothing to protect against.
         const numAlignmentGroups = cardAlignment === "middle" || isHorizontal ? 2 : 1;
         let cards: Card[] = [];
-        // Populated by the capping pass below, for same-timePosition runs too dense to show
-        // individually even at the readability floor.
+        // Populated below for same-timePosition runs too dense to show individually even at
+        // the readability floor.
         let overflowLabels: OverflowLabel[] = [];
-        // Concurrent-lane count within its own group at the moment each card was placed (its
-        // block's own size - see below). This is what cardSpacingForPeak sizes each card's
-        // own spacing from below - see the spacing pass's own comment for why it's exact,
-        // not an estimate.
-        let rawPeakAtInsertion: number[] = [];
 
-        // Which of the 2 lane pools a timePosition lands on. Each leaf node is inherently
-        // one distinct timePosition (that's what leafIndex means), so toggling once per
-        // leaf that actually has cards - rather than once per card - is enough to keep a
-        // date's events together instead of splitting across both pools.
-        let currentGroup = 0;
-
-        timeLeaves.forEach((node: DataViewHierarchyNode) => {
-            let eventRows = node
-                .rows()
-                .filter((row) => hasEventAxis && row.categorical(eventAxisName).formattedValue() != "");
-            if (eventRows.length === 0) return;
-            let index = eventRows[0].categorical(timeAxisName).leafIndex;
-
-            let group = currentGroup;
-            if (numAlignmentGroups === 2) currentGroup = 1 - currentGroup;
-
-            // All of this timePosition's cards mutually overlap (same instant), so they
-            // occupy one contiguous block of lanes, [0, count), starting right at the bottom
-            // of their group's pool rather than searching for free lanes - a leaf can only
-            // ever visually overlap its immediate neighbor leaf (see numAlignmentGroups
-            // above: a card is alongSegmentsPerCard segments wide, so that's the farthest
-            // apart two leaves can be and still touch), and currentGroup alternates every
-            // leaf, so that one possible neighbor always lands in the *other* group. Nothing
-            // in this leaf's own group can still be "on screen" at the same time, so lane 0
-            // is always free for it.
-            let count = eventRows.length;
-
-            eventRows.forEach((row, k) => {
-                // Every card in this block reflects the block's own full height, not its
-                // individual position within it - they're all equally, mutually concurrent.
-                rawPeakAtInsertion.push(count);
-
-                cards.push({
-                    description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
-                    verticalPosition: vpFor(group, k),
-                    cardSpacing: 0,
-                    timePosition: index,
-                    color: row.color(),
-                    row: row
-                });
-            });
-        });
-
-        // Shuffle cards on top of each other to fit across the stacking axis, within the
-        // actual visible drawing area (drawingAreaCrossSize), not the raw window - fitting
-        // against crossSize would let the bottom/trailing-most row overflow into (and get
-        // clipped by) the 35px strip reserved for the scrollbar.
         const naturalCardSpacing = crossCardExtent + 4 + crossSpaceBetweenCards;
         // Below this, a card's own text no longer reliably fits in whatever sliver of it
-        // stays uncovered by its neighbors - see cardSpacingForPeak's floor and the capping
-        // pass below. Mirrors timelineLevelHeight's own fontSize*2 sizing for a single line.
+        // stays uncovered by its neighbors - see fitWithinCeiling's floor below. Mirrors
+        // timelineLevelHeight's own fontSize*2 sizing for a single line.
         const minReadableCardSpacing = fontSize * 2 + 4;
-        // The overflow label (see the capping pass and calculateOverflowLabelCrossPos
-        // below) is plain text, not a card - it only needs room for its own short "+N"
-        // line, not a full card's worth of readable space.
+        // The overflow label (see fitWithinCeiling and calculateOverflowLabelCrossPos below)
+        // is plain text, not a card - it only needs room for its own short "+N" line, not a
+        // full card's worth of readable space.
         const overflowLabelCrossSize = fontSize + 4;
         const overflowLabelGap = 4;
-        function cardSpacingForPeak(peakLanes: number): number {
-            // peakLanes already reflects one group's own local crowding - each group has
-            // its own independent lane pool (see the per-group lane scheduler above
-            // cards.push), so this is never a combined figure that needs splitting across
-            // numAlignmentGroups. Space is still reserved as if the *other* group could
-            // need just as many lanes too, so both groups always share one consistent, safe
-            // spacing value without having to know the other group's actual peak.
-            const lanesPerGroup = peakLanes;
-            const totalSpaceRequired =
-                naturalCardSpacing * (numAlignmentGroups * lanesPerGroup) + timelineLevelHeight * timeHierarchyDepth;
-            return totalSpaceRequired < drawingAreaCrossSize
-                ? naturalCardSpacing
-                : Math.max(
-                      minReadableCardSpacing,
-                      (drawingAreaCrossSize -
-                          timelineLevelHeight * timeHierarchyDepth -
-                          (crossCardExtent + 4) * numAlignmentGroups) /
-                          (numAlignmentGroups * lanesPerGroup)
-                  );
+
+        // Total cross-axis room "start"/"end" leaves share on their one side - not simply
+        // drawingAreaCrossSize minus the timeline's own block, but minus crossSpaceBetweenCards
+        // too: every leaf's own reach (see reachFor above) already spends that same gap
+        // clearing the timeline, so it has to come off the shared budget once here as well, or
+        // the outermost card ends up landing crossSpaceBetweenCards past the drawing area's own
+        // edge - confirmed against calculateCardCrossPos's actual anchor point, which for a
+        // near (offset 0) leaf is exactly timeLineCrossPos for "end" (or its mirror for
+        // "start"), and both equal drawingAreaCrossSize - timelineCrossExtent -
+        // crossSpaceBetweenCards, not drawingAreaCrossSize - timelineCrossExtent alone.
+        // fitWithinCeiling below treats these budgets as exact, so a leaf that "just barely
+        // fits" can land its outermost card's edge precisely at the drawing area's own
+        // boundary - with zero margin for the sub-pixel rounding that a chain of floating-
+        // point subtractions/divisions through this layout math can leave behind (a
+        // fractional-pixel remainder is enough for the browser's own rasterization, combined
+        // with the drawing area's overflow:hidden, to visibly clip a sliver of that card).
+        // pixelSafetyMargin absorbs that - a fixed, deliberate couple of pixels of slack, not
+        // a value derived from any specific rounding error (there isn't one single source to
+        // fix; this is just cheap insurance against all of them at once).
+        const pixelSafetyMargin = 2;
+        const availableForBands =
+            drawingAreaCrossSize - timelineLevelHeight * timeHierarchyDepth - crossSpaceBetweenCards - pixelSafetyMargin;
+        // "middle"'s 2 groups sit on physically independent sides of the timeline, each with
+        // its own fixed share of drawingAreaCrossSize and no neighbor interaction at all - so
+        // unlike "start"/"end" above, timeLineCrossPos itself is already the exact reachable
+        // budget on each side, with nothing further to subtract beyond the same
+        // pixelSafetyMargin.
+        const middleSideAvailable = [
+            timeLineCrossPos - pixelSafetyMargin,
+            drawingAreaCrossSize - (timeLineCrossPos + timelineCrossExtent) - pixelSafetyMargin
+        ];
+
+        // Exact cross-axis distance from the timeline to the outermost card's own far edge
+        // for `count` lanes at a given `spacing` - crossSpaceBetweenCards to clear the
+        // timeline itself, `count - 1` full pitches to reach the outermost lane, then that
+        // lane's own card box (crossCardExtent). Used both to decide whether a spacing choice
+        // fits, and (via fitWithinCeiling's usedExtent) as exactly how much room a leaf
+        // actually used - not an approximation, so a neighbor relying on it never reserves
+        // more than is truly needed (nor less).
+        function reachFor(count: number, spacing: number): number {
+            return crossSpaceBetweenCards + (count - 1) * spacing + crossCardExtent;
         }
-        // Inverse of cardSpacingForPeak: how many lanes (per group) fit in the available
-        // cross-axis space without going below the given spacing.
-        function maxLanesPerGroupAtSpacing(spacing: number): number {
-            return Math.max(
+        // Resolves one leaf's cards against a firm ceiling on its own cross-axis reach -
+        // already balanced against its neighbors below (see minGuaranteeFor and the
+        // resolution passes further down), so this never needs to know about anything beyond
+        // its own count and that one number.
+        function fitWithinCeiling(count: number, ceiling: number): { budget: number; spacing: number; usedExtent: number } {
+            // A single card's reach doesn't depend on spacing at all - there's no second lane
+            // to space it from - so there's nothing to shrink or cap.
+            if (count === 1) {
+                return { budget: 1, spacing: naturalCardSpacing, usedExtent: Math.min(ceiling, reachFor(1, naturalCardSpacing)) };
+            }
+            if (reachFor(count, naturalCardSpacing) <= ceiling) {
+                return { budget: count, spacing: naturalCardSpacing, usedExtent: reachFor(count, naturalCardSpacing) };
+            }
+            const shrunkSpacing = (ceiling - crossSpaceBetweenCards - crossCardExtent) / (count - 1);
+            if (shrunkSpacing >= minReadableCardSpacing) {
+                return { budget: count, spacing: shrunkSpacing, usedExtent: reachFor(count, shrunkSpacing) };
+            }
+            // Even at the readability floor this leaf's cards don't all fit - cap it (see
+            // OverflowLabel) and reserve room for the "+N" label itself, which renders past
+            // the outermost survivor's own far edge (see calculateOverflowLabelCrossPos), so
+            // the label always has somewhere to go instead of spilling past this leaf's own
+            // ceiling. The final Math.min is a last-resort clamp for when even a single card
+            // doesn't fit the ceiling (only possible at the very edge of the drawing area) -
+            // minGuaranteeFor keeps this from ever happening for an ordinary neighbor dispute,
+            // so this is purely a floor against a truly impossible ceiling.
+            const forLabel = overflowLabelGap + overflowLabelCrossSize;
+            const budget = Math.max(
                 1,
-                Math.floor(
-                    (drawingAreaCrossSize -
-                        timelineLevelHeight * timeHierarchyDepth -
-                        (crossCardExtent + 4) * numAlignmentGroups) /
-                        (numAlignmentGroups * spacing)
+                Math.min(
+                    count,
+                    1 +
+                        Math.floor(
+                            (ceiling - crossSpaceBetweenCards - crossCardExtent - forLabel) / minReadableCardSpacing
+                        )
                 )
             );
+            const usedExtent = reachFor(budget, minReadableCardSpacing) + (budget < count ? forLabel : 0);
+            return { budget, spacing: minReadableCardSpacing, usedExtent: Math.min(ceiling, usedExtent) };
         }
+        // The smallest reach a leaf could ever be resolved down to: a single card at the
+        // readability floor, plus its overflow label's own reservation if it has more than
+        // one event to fold the rest of into that label - exactly mirroring
+        // fitWithinCeiling's own floor branch. This is what a near leaf reserves for a
+        // bordering far leaf below - that far leaf's own actual count, not a guess - so it's
+        // guaranteed at least this much regardless of how big the near leaf's own count is,
+        // without the near leaf ever having to yield its *full* natural size for a neighbor
+        // that, once resolved, usually won't need anywhere near that much anyway. A near
+        // leaf sandwiched by 2 far neighbors reserves this once per side; either side that
+        // isn't actually a touching far leaf reserves nothing.
+        function minGuaranteeFor(count: number): number {
+            const forLabel = overflowLabelGap + overflowLabelCrossSize;
+            return reachFor(1, naturalCardSpacing) + (count > 1 ? forLabel : 0);
+        }
+
         // verticalPosition -> group/lane and back (see laneInfo below, defined later in
         // this closure but hoisted).
         function vpFor(group: number, lane: number): number {
@@ -480,105 +493,148 @@ window.Spotfire.initialize(async (mod) => {
         function usesPlusDirection(group: number): boolean {
             return cardAlignment === "start" || (cardAlignment === "middle" && group === 1);
         }
-        // "start"/"end" alignment's two groups render as two stacked bands on their one
-        // shared side rather than one shared lane pool, so a date's own cluster never has
-        // to compete for lanes with whichever date happens to land in the other group. Each
-        // band gets a fixed, even half of the space beyond the timeline (matching the
-        // symmetric per-group allocation cardSpacingForPeak already assumes) - group 1's
-        // band starts right where group 0's reserved half ends. Unused in "middle"
-        // alignment, whose two groups already sit on physically opposite sides of the
-        // timeline and need no extra offset.
-        const startEndBandHeight = (drawingAreaCrossSize - timelineLevelHeight * timeHierarchyDepth) / 2;
-        function bandOffset(group: number): number {
-            return cardAlignment !== "middle" && group === 1 ? startEndBandHeight : 0;
+
+        // A "start"/"end" leaf's own ceiling depends on its immediate neighbors (see
+        // minGuaranteeFor above), so this runs as a few small passes: the first walks the
+        // leaves once to assign groups (which never depends on anything else), the
+        // second resolves every near leaf (reserving minGuaranteeFor its bordering far
+        // leaf(s), if any - see minGuaranteeFor above), the third resolves far leaves using
+        // their now-known near neighbors, and only then are the actual Card/OverflowLabel
+        // objects built for everyone.
+        interface LeafInfo {
+            eventRows: DataViewRow[];
+            group: number;
+            index: number;
+            count: number;
         }
-        // Extreme same-timePosition clustering (e.g. thousands of events on one date) is the
-        // only way lane counts grow unbounded - see the lane-scheduler comment above
-        // cards.push. Once a run needs less than the readability floor per lane, stop
-        // growing lanes for it: keep the frontmost `budget` cards per group individually
-        // visible (see OverflowLabel above for what happens to the rest). `cards` is already
-        // in non-decreasing timePosition order, so equal-timePosition cards are contiguous
-        // and cheap to find as maximal runs.
-        //
-        // The overflow label has to clear the *entire* visible stack, not just whichever
-        // survivor happens to be least-occluded in z-order (that's lane 0, not budget - 1,
-        // for a "minus direction" group - see usesPlusDirection/cardZIndex). Regardless of
-        // direction, the lane nothing else in the stack extends past is always the outermost
-        // one, budget - 1, since calculateCardCrossPos places every lane strictly farther
-        // from the timeline than the one before it.
-        //
-        // budget is hoisted out of the run-scan loop below since it depends only on
-        // constants fixed for this whole render pass (drawingAreaCrossSize,
-        // numAlignmentGroups, minReadableCardSpacing), not on anything per-run.
-        const capBudget = maxLanesPerGroupAtSpacing(minReadableCardSpacing);
+        let leafInfos: LeafInfo[] = [];
         {
-            let runStart = 0;
-            while (runStart < cards.length) {
-                let runEnd = runStart + 1;
-                while (runEnd < cards.length && cards[runEnd].timePosition === cards[runStart].timePosition) {
-                    runEnd++;
-                }
-                const runLength = runEnd - runStart;
-                if (runLength > 1 && cardSpacingForPeak(runLength) <= minReadableCardSpacing) {
-                    const budget = capBudget;
-                    const groupCards: Card[][] = [[], []];
-                    for (let i = runStart; i < runEnd; i++) {
-                        groupCards[laneInfo(cards[i].verticalPosition).group].push(cards[i]);
-                    }
-                    const replacement: Card[] = [];
-                    // groupCards always has exactly 2 slots (see its declaration above), but
-                    // only numAlignmentGroups of them are ever populated - see the
-                    // currentGroup toggle gated on numAlignmentGroups === 2, above cards.push.
-                    for (let group = 0; group < numAlignmentGroups; group++) {
-                        const inGroup = groupCards[group];
-                        if (inGroup.length === 0) continue;
-                        if (inGroup.length <= budget) {
-                            inGroup.forEach((c) => (c.fixedSpacing = minReadableCardSpacing));
-                            replacement.push(...inGroup);
-                            continue;
-                        }
-                        const survivors = inGroup.slice(0, budget);
-                        const hidden = inGroup.slice(budget);
-                        survivors.forEach((c, lane) => {
-                            c.verticalPosition = vpFor(group, lane);
-                            c.fixedSpacing = minReadableCardSpacing;
-                        });
-                        replacement.push(...survivors);
-                        const outermostSurvivor = survivors[budget - 1];
-                        overflowLabels.push({
-                            timePosition: outermostSurvivor.timePosition,
-                            verticalPosition: outermostSurvivor.verticalPosition,
-                            // outermostSurvivor.cardSpacing isn't resolved yet at this point in
-                            // the pipeline (only fixedSpacing, set just above) -
-                            // minReadableCardSpacing is exactly what it'll end up being.
-                            cardSpacing: minReadableCardSpacing,
-                            count: hidden.length,
-                            row: hidden[0].row
-                        });
-                    }
-                    cards.splice(runStart, runLength, ...replacement);
-                    // Every entry in `replacement` already carries fixedSpacing (set above),
-                    // which short-circuits the read of rawPeakAtInsertion in the spacing pass
-                    // below - so only the length needs to stay aligned with `cards` here, not
-                    // the values.
-                    rawPeakAtInsertion.splice(runStart, runLength, ...new Array(replacement.length));
-                    runEnd = runStart + replacement.length;
-                }
-                runStart = runEnd;
-            }
+            // Each leaf node is inherently one distinct timePosition (that's what leafIndex
+            // means), so toggling once per leaf that actually has cards - rather than once per
+            // card - is enough to keep a date's events together instead of splitting across
+            // both pools.
+            let currentGroup = 0;
+            // Index of the last leaf that had events - lets the loop below tell whether the
+            // upcoming leaf is actually within touching distance of it (see isAdjacent below).
+            let lastNonEmptyIndex = -Infinity;
+
+            timeLeaves.forEach((node: DataViewHierarchyNode) => {
+                let eventRows = node
+                    .rows()
+                    .filter((row) => hasEventAxis && row.categorical(eventAxisName).formattedValue() != "");
+                if (eventRows.length === 0) return;
+                let index = eventRows[0].categorical(timeAxisName).leafIndex;
+
+                // Alternation exists to keep two touching leaves (index apart by exactly 1 -
+                // see alongSegmentsPerCard above for why that's the farthest apart two leaves
+                // can be and still overlap) from competing for the same lanes. In "start"/"end"
+                // alignment that's the *only* reason the 2nd group exists (see numAlignmentGroups
+                // above), so a leaf that isn't actually touching the last one with events has
+                // nothing to protect against - resetting to group 0 keeps it flush against the
+                // timeline instead of leaving room for a neighbor that isn't there. "middle"
+                // alignment's 2 groups are a deliberate fan-out across both physical sides
+                // regardless of adjacency (see numAlignmentGroups above), so it keeps the
+                // unconditional alternation.
+                const isAdjacent = index - lastNonEmptyIndex <= 1;
+                if (cardAlignment !== "middle" && !isAdjacent) currentGroup = 0;
+
+                let group = currentGroup;
+                if (numAlignmentGroups === 2) currentGroup = 1 - currentGroup;
+                lastNonEmptyIndex = index;
+
+                // All of this timePosition's cards mutually overlap (same instant), so they
+                // occupy one contiguous block of lanes, [0, count), starting right at the bottom
+                // of their group's pool rather than searching for free lanes - a leaf can only
+                // ever visually overlap its immediate neighbor leaf (see numAlignmentGroups above:
+                // a card is alongSegmentsPerCard segments wide, so that's the farthest apart two
+                // leaves can be and still touch). Either this leaf isn't adjacent to the last one
+                // with events, so nothing is close enough to conflict with it regardless of group;
+                // or it is adjacent, in which case the toggle above just placed it in the group the
+                // neighbor didn't use. Either way nothing in this leaf's own group can still be "on
+                // screen" at the same time, so lane 0 is always free for it.
+                let count = eventRows.length;
+
+                leafInfos.push({ eventRows, group, index, count });
+            });
         }
-        // Each card's spacing comes straight from its own leaf's block height
-        // (rawPeakAtInsertion, set above cards.push) - no neighbor search needed. As the
-        // comment above cards.push notes, a leaf's block never shares its group's lanes with
-        // any other still-visible leaf, so this card's own block already *is* the worst-case
-        // concurrency nearby, exactly.
-        cards.forEach((card, i) => {
-            if (card.fixedSpacing != undefined) {
-                // Already resolved by the capping pass above.
-                card.cardSpacing = card.fixedSpacing;
-                return;
+
+        function isFarBandAt(i: number): boolean {
+            return cardAlignment !== "middle" && leafInfos[i].group === 1;
+        }
+
+        const resolvedByIndex: ({ budget: number; spacing: number; usedExtent: number } | undefined)[] = new Array(
+            leafInfos.length
+        );
+
+        // Near leaves (and every "middle" leaf) resolve first - see minGuaranteeFor above for
+        // why reserving a fixed, count-specific minimum for a bordering far leaf is enough to
+        // guarantee it a viable slot, without this leaf ever having to yield its *full*
+        // natural size the way reserving that neighbor's own full size would demand.
+        leafInfos.forEach((info, i) => {
+            if (isFarBandAt(i)) return;
+            let ceiling: number;
+            if (cardAlignment === "middle") {
+                ceiling = middleSideAvailable[info.group];
+            } else {
+                const prev = leafInfos[i - 1];
+                const next = leafInfos[i + 1];
+                const prevReserve = prev && isFarBandAt(i - 1) && info.index - prev.index <= 1 ? minGuaranteeFor(prev.count) : 0;
+                const nextReserve = next && isFarBandAt(i + 1) && next.index - info.index <= 1 ? minGuaranteeFor(next.count) : 0;
+                ceiling = Math.max(0, availableForBands - prevReserve - nextReserve);
             }
-            card.cardSpacing = cardSpacingForPeak(rawPeakAtInsertion[i]);
+            resolvedByIndex[i] = fitWithinCeiling(info.count, ceiling);
+        });
+
+        // Far leaves resolve second, now that both of their possible neighbors (always near,
+        // by construction - see the lane-scheduler comment below) are already resolved. The
+        // only leaves that can actually touch a far leaf are its immediate array neighbors,
+        // so it renders starting past whichever of the two actually reaches farther, not just
+        // whichever one happens to precede it.
+        const crossOffsetByIndex: number[] = new Array(leafInfos.length).fill(0);
+        leafInfos.forEach((info, i) => {
+            if (!isFarBandAt(i)) return;
+            const prev = leafInfos[i - 1];
+            const next = leafInfos[i + 1];
+            const prevExtent = prev && info.index - prev.index <= 1 ? resolvedByIndex[i - 1]!.usedExtent : 0;
+            const nextExtent = next && next.index - info.index <= 1 ? resolvedByIndex[i + 1]!.usedExtent : 0;
+            const offset = Math.max(prevExtent, nextExtent);
+            crossOffsetByIndex[i] = offset;
+            resolvedByIndex[i] = fitWithinCeiling(info.count, Math.max(0, availableForBands - offset));
+        });
+
+        leafInfos.forEach(({ eventRows, group, index, count }, i) => {
+            const crossOffset = crossOffsetByIndex[i];
+            const { budget, spacing } = resolvedByIndex[i]!;
+
+            eventRows.forEach((row, k) => {
+                if (k >= budget) return;
+                cards.push({
+                    description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
+                    verticalPosition: vpFor(group, k),
+                    cardSpacing: spacing,
+                    crossOffset,
+                    timePosition: index,
+                    color: row.color(),
+                    row: row
+                });
+            });
+            if (budget < count) {
+                // The overflow label has to clear the *entire* visible stack, not just
+                // whichever survivor happens to be least-occluded in z-order (that's lane 0,
+                // not budget - 1, for a "minus direction" group - see
+                // usesPlusDirection/cardZIndex below). Regardless of direction, the lane
+                // nothing else in the stack extends past is always the outermost one,
+                // budget - 1, since calculateCardCrossPos places every lane strictly farther
+                // from the timeline than the one before it.
+                overflowLabels.push({
+                    timePosition: index,
+                    verticalPosition: vpFor(group, budget - 1),
+                    cardSpacing: spacing,
+                    crossOffset,
+                    count: count - budget,
+                    row: eventRows[budget]
+                });
+            }
         });
 
         // Deterministic front-to-back stacking: within a shingled/overlapping run, "drawn
@@ -1144,9 +1200,10 @@ window.Spotfire.initialize(async (mod) => {
         }
 
         // Cards always alternate between 2 groups, stacking outward in lanes within their
-        // own group - see usesPlusDirection/bandOffset above for how "middle" (opposite
-        // sides of the timeline) vs "start"/"end" (two stacked bands on their one shared
-        // side) place them differently.
+        // own group - see usesPlusDirection above for how "middle" (opposite sides of the
+        // timeline) vs "start"/"end" (two stacked bands on their one shared side) place them
+        // differently, and each card's own crossOffset field (set where it's built above) for
+        // how far its group's own band starts from the timeline before lane*cardSpacing.
         function laneInfo(verticalPosition: number) {
             return { group: verticalPosition % 2, lane: Math.floor(verticalPosition / 2) };
         }
@@ -1161,11 +1218,10 @@ window.Spotfire.initialize(async (mod) => {
         function calcConnectorCrossExtent(d: Card) {
             let { group, lane } = laneInfo(d.verticalPosition);
             let cardSpacing = d.cardSpacing;
-            let offset = bandOffset(group);
 
             return usesPlusDirection(group)
-                ? crossSpaceBetweenCards + lane * cardSpacing - 3 + offset
-                : lane * cardSpacing + crossSpaceBetweenCards + offset;
+                ? crossSpaceBetweenCards + lane * cardSpacing - 3 + d.crossOffset
+                : lane * cardSpacing + crossSpaceBetweenCards + d.crossOffset;
         }
 
         function calcConnectorCrossPos(d: Card) {
@@ -1174,24 +1230,23 @@ window.Spotfire.initialize(async (mod) => {
 
             return usesPlusDirection(group)
                 ? timeLineCrossPos + timelineLevelHeight * timeHierarchyDepth + 3
-                : timeLineCrossPos - crossSpaceBetweenCards - lane * cardSpacing - bandOffset(group);
+                : timeLineCrossPos - crossSpaceBetweenCards - lane * cardSpacing - d.crossOffset;
         }
 
-        // Widened to { verticalPosition, cardSpacing } (rather than Card) so an
-        // OverflowLabel - anchored to the frontmost real card's own lane/spacing, see the
-        // capping pass above - can reuse this to find that card's position too.
-        function calculateCardCrossPos(d: { verticalPosition: number; cardSpacing: number }) {
+        // Widened to { verticalPosition, cardSpacing, crossOffset } (rather than Card) so an
+        // OverflowLabel - anchored to the frontmost real card's own lane/spacing/offset, see
+        // where it's built above - can reuse this to find that card's position too.
+        function calculateCardCrossPos(d: { verticalPosition: number; cardSpacing: number; crossOffset: number }) {
             let { group, lane } = laneInfo(d.verticalPosition);
             let cardSpacing = d.cardSpacing;
-            let offset = bandOffset(group);
 
             return usesPlusDirection(group)
                 ? timeLineCrossPos +
                       timelineLevelHeight * timeHierarchyDepth +
                       lane * cardSpacing +
                       crossSpaceBetweenCards +
-                      offset
-                : timeLineCrossPos - crossSpaceBetweenCards - lane * cardSpacing - crossCardExtent - offset;
+                      d.crossOffset
+                : timeLineCrossPos - crossSpaceBetweenCards - lane * cardSpacing - crossCardExtent - d.crossOffset;
         }
 
         // An overflow label sits just past its anchor card's far edge (the edge away from
