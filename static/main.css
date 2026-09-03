@@ -154,10 +154,23 @@ body {
                 0px 1px 2px 0px rgba(0,0,0,0.24);
 }
 
-.card:hover {
-    /* Bring a card in front of any overlapping neighbors - including marked ones,
-       which are otherwise raised in front via DOM order - while the mouse is over it. */
-    z-index: 1;
+/* Hover-to-front is handled via an inline z-index bump in the mouseenter/mouseleave
+   handlers (not here) - cards carry an explicit, meaningful z-index (stacking order
+   within a shingled pile, marked-on-top) that a flat CSS rule can no longer safely
+   override for every case. */
+
+.overflow-label {
+    position: absolute;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    user-select: none;
+    cursor: default;
+    text-align: center;
+    font-style: italic;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .connector {
