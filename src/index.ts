@@ -458,9 +458,6 @@ window.Spotfire.initialize(async (mod) => {
             .join("div")
             .attr("id", "markingOverlay")
             .attr("class", "inactiveMarking");
-        // In horizontal mode the scrollbar sits along the bottom, clear of the button's
-        // top-right corner. In vertical mode it occupies the whole right edge, so the button
-        // moves to sit just left of it.
         const settingsButtonSize = 24;
         // A plain top-align collides with Spotfire's floating action button (FAB), which
         // renders in the visualization's top-right corner regardless of the mod's own
@@ -470,7 +467,10 @@ window.Spotfire.initialize(async (mod) => {
         // the standard 32px Spotfire action-button size, so this clears its bottom edge
         // (~48px) with a small margin.
         const settingsButtonTop = 56;
-        const settingsButtonRight = isHorizontal ? 8 : scrollBarHeight + 8;
+        // Same right inset regardless of orientation - keeps the button aligned under the FAB
+        // (which uses this same inset) instead of shifting sideways when orientation changes,
+        // and vertical mode still needs it clear of the scrollbar running down that edge.
+        const settingsButtonRight = scrollBarHeight + 8;
 
         let settingsButton = modContainer
             .selectAll("#settingsButton")
