@@ -109,6 +109,36 @@ window.Spotfire.initialize(async (mod) => {
     // Leftmost visible time segment index, persisted across renders so scroll position
     // survives marking/window updates instead of resetting on every re-render.
     let scrollValue = 0;
+    // Where scrollValue currently points, expressed so it can be relocated after a Time
+    // axis expression edit rebuilds the hierarchy with a different leaf count/depth -
+    // scrollValue itself is never actually reset by that, it's only ever clamped, but the
+    // same raw index silently starts pointing at an unrelated point in time once the
+    // hierarchy reshapes.
+    //
+    // `path` is the formatted value of each ancestor level (top down, excluding the
+    // invisible true root) of the leaf at the *center* of the viewport, e.g.
+    // ["1946", "Jun"] for a Year > Month leaf. Resolving walks the new hierarchy from the
+    // root matching path segments level by level - each level's own value against itself,
+    // which stays valid regardless of how many levels exist above or below it - then reads
+    // the *actual* leaf-index range of wherever that walk ends up, so an irregular bucket
+    // (e.g. a dataset's first year only having its last few months) is handled by
+    // construction rather than by an assumption that has to hold. `fraction` (0-1) is the
+    // remaining sub-position within the deepest matched node's own leaf range.
+    //
+    // Two simpler approaches were tried first and both broke on real data:
+    //  - Anchoring to a leaf's own DataViewHierarchyNode.value() directly: only reflects
+    //    that leaf's own level (e.g. just a month number, not the year it's in), so it
+    //    isn't comparable across hierarchies with a different number of levels.
+    //  - Anchoring to a fraction of the total leaf count: assumes every bucket is the same
+    //    size, which breaks by a roughly constant offset the moment any bucket (almost
+    //    always the first or last) is partial.
+    // An earlier attempt at this same path-match approach broke round-tripping outright,
+    // traced to wrongly assuming (from a misread of "undefined for root level nodes" in
+    // the docs) that a top-level node's own .parent is undefined - confirmed via live
+    // console logging that it isn't: it points to a real root node (formattedValue() "",
+    // value() null), whose *own* .parent is what's actually undefined. The capture walk
+    // below stops there correctly now.
+    let scrollAnchor: { path: string[]; fraction: number } | null = null;
     // Whether the timeline currently overflows the viewport at all, and whether the mouse
     // is over the visualization - the scrollbar only shows when both are true. Persisted
     // (rather than render-local) since hover can change independently of any render pass.
@@ -278,6 +308,64 @@ window.Spotfire.initialize(async (mod) => {
 
         let timeLeaves = timeHierarchyRoot.leaves();
 
+        // Turns a previously captured scrollAnchor back into a scrollValue (the viewport's
+        // left edge) for this render's (possibly reshaped) hierarchy: walks from the root
+        // matching anchor.path level by level - each level's own formattedValue against
+        // itself, so it stays valid regardless of how many levels exist above or below it
+        // - then reads the *actual* leaf-index range of wherever that walk ends up (either
+        // an exact leaf, if the new hierarchy matches the stored path's full depth, or the
+        // deepest ancestor it still has in common with it otherwise) and applies the
+        // stored sub-fraction across that real range.
+        function resolveScrollValueFromAnchor(anchor: { path: string[]; fraction: number }): number {
+            let node: DataViewHierarchyNode = timeHierarchyRoot!;
+            let matchedDepth = 0;
+            while (matchedDepth < anchor.path.length && node.children) {
+                const target = anchor.path[matchedDepth];
+                const child = node.children.find((c) => c.formattedValue() === target);
+                if (!child) break;
+                node = child;
+                matchedDepth++;
+            }
+            const leaves = node.leaves();
+            if (leaves.length === 0) return 0;
+            const startIndex = leaves[0].leafIndex ?? 0;
+            const centerIndex = startIndex + anchor.fraction * leaves.length;
+            return centerIndex - visibleTimeSegments / 2;
+        }
+
+        // Captures the current scroll position as a scrollAnchor (see its declaration for
+        // why a path match rather than a value or a fraction), so a later render (with a
+        // possibly-reshaped hierarchy, e.g. from a Time axis expression edit that changes
+        // the granularity) can relocate roughly the same relative position instead of
+        // reinterpreting the same raw index against a hierarchy it no longer describes.
+        //
+        // Anchored to the *center* of the viewport, not its left edge (scrollValue itself):
+        // a granularity change also changes how many leaves fit on screen at once (e.g.
+        // ~18 years fit before hitting the minimum card-width floor, but only ~18 months
+        // do after drilling in), so preserving just the left edge's position leaves the
+        // *center* of what's visible dragged backwards by roughly half of however much the
+        // viewport's real-time span just shrank - which reads as a jarring jump even though
+        // the edge itself never moved. Anchoring the point the user is actually looking at
+        // avoids that.
+        function captureScrollAnchor(value: number) {
+            if (timeLeaves.length === 0) {
+                scrollAnchor = null;
+                return;
+            }
+            const centerValue = value + visibleTimeSegments / 2;
+            const leafIndex = Math.min(timeLeaves.length - 1, Math.max(0, Math.floor(centerValue)));
+            const path: string[] = [];
+            // Stops once a node's own .parent is undefined - the true root - rather than
+            // once the node itself is falsy, since a top-level node's .parent is a real
+            // (root) object, not undefined; see the comment on scrollAnchor's declaration.
+            let node: DataViewHierarchyNode | undefined = timeLeaves[leafIndex];
+            while (node && node.parent !== undefined) {
+                path.unshift(node.formattedValue());
+                node = node.parent;
+            }
+            scrollAnchor = { path, fraction: centerValue - Math.floor(centerValue) };
+        }
+
         let timeHierarchyDepth = timeHierarchy?.levels.length || 0;
 
         /**
@@ -352,7 +440,11 @@ window.Spotfire.initialize(async (mod) => {
         const visibleTimeSegments = mainSize / timeSegmentSize;
         const maxScrollValue = Math.max(0, (drawingAreaAlongSize - mainSize) / timeSegmentSize);
         needsScroll = drawingAreaAlongSize > mainSize;
+        if (scrollAnchor != null) {
+            scrollValue = resolveScrollValueFromAnchor(scrollAnchor);
+        }
         scrollValue = Math.min(scrollValue, maxScrollValue);
+        captureScrollAnchor(scrollValue);
 
         let cards: Card[] = [];
 
@@ -733,6 +825,7 @@ window.Spotfire.initialize(async (mod) => {
 
         function onScrollValueChanged(newValue: number) {
             scrollValue = newValue;
+            captureScrollAnchor(scrollValue);
             applyScrollTransform();
             renderVisibleWindow();
         }
@@ -759,6 +852,7 @@ window.Spotfire.initialize(async (mod) => {
             if (autoScroll && scrollValue < maxScrollValue) {
                 // Advance by roughly one pixel per tick, matching the previous native-scroll speed.
                 scrollValue = Math.min(maxScrollValue, scrollValue + 1 / timeSegmentSize);
+                captureScrollAnchor(scrollValue);
                 timelineScrollBar.setValue(scrollValue);
                 applyScrollTransform();
                 renderVisibleWindow();
