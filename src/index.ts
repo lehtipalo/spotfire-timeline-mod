@@ -2,7 +2,7 @@ import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo, ModPro
 import { select } from "d3-selection";
 import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
 import { scrollBarControl } from "./scrollBarControl";
-import { layoutEvents } from "./layout";
+import { greedyLaneLayout } from "./greedyLaneLayout";
 
 export type Orientation = "horizontal" | "vertical";
 
@@ -363,7 +363,7 @@ window.Spotfire.initialize(async (mod) => {
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
-        const cardLayout = layoutEvents(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
+        const cardLayout = greedyLaneLayout(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
             timeSegmentsPerCard,
             crossCardExtent,
             crossSpaceBetweenCards,

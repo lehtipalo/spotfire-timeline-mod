@@ -39,17 +39,17 @@ export type LayoutAlgorithm = (
     context: LayoutContext
 ) => LayoutResult[];
 
-// Default algorithm: greedy interval-graph coloring along the primary axis (each event
-// takes the first lane whose last occupant is far enough behind it), then a local-peak
-// pass that sizes each event's lane pitch to the worst concurrency found near it rather
-// than one pitch shared by an entire transitively-chained run of overlapping events.
+// Greedy interval-graph coloring along the primary axis (each event takes the first lane
+// whose last occupant is far enough behind it), then a local-peak pass that sizes each
+// event's lane pitch to the worst concurrency found near it rather than one pitch shared
+// by an entire transitively-chained run of overlapping events.
 //
 // primarySize and axisPosition aren't used by this particular algorithm - lane
 // assignment only depends on relative timePosition differences, and pitch only on how
 // much cross-axis room is available - but are part of the contract so other algorithms
 // (e.g. ones that vary lane pitch along the primary axis, or split around the axis
 // asymmetrically) have what they need without changing the call site.
-export const layoutEvents: LayoutAlgorithm = (events, primarySize, secondarySize, axisPosition, context) => {
+export const greedyLaneLayout: LayoutAlgorithm = (events, primarySize, secondarySize, axisPosition, context) => {
     const { timeSegmentsPerCard, crossCardExtent, crossSpaceBetweenCards, numAlignmentGroups, timelineCrossExtent } =
         context;
 
