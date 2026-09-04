@@ -478,12 +478,18 @@ window.Spotfire.initialize(async (mod) => {
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
+        // Roughly one line of card text - .card has no explicit line-height (browser
+        // default, ~1.15-1.2x font size), so this is a deliberately approximate floor for
+        // how far a layout algorithm may let cards overlap, not a measurement of actual
+        // rendered text - see LayoutContext.minVisibleCrossExtent.
+        const minVisibleCrossExtent = fontSize * 1.4;
         const cardLayout = layoutAlgorithm(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
             timeSegmentsPerCard,
             crossCardExtent,
             crossSpaceBetweenCards,
             numAlignmentGroups,
-            timelineCrossExtent: timelineLevelHeight * timeHierarchyDepth
+            timelineCrossExtent: timelineLevelHeight * timeHierarchyDepth,
+            minVisibleCrossExtent
         });
         cards.forEach((card, i) => {
             card.verticalPosition = cardLayout[i].verticalPosition;

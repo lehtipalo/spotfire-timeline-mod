@@ -29,6 +29,13 @@ export interface LayoutContext {
     numAlignmentGroups: number;
     // Cross-axis thickness of the timeline itself, reserved out of secondarySize.
     timelineCrossExtent: number;
+    // The smallest cross-axis sliver of a card an algorithm may leave visible when
+    // resolving crowding by overlapping cards instead of dropping them - a practical
+    // "enough to still read something" floor (e.g. approximating one line of text height),
+    // not a guarantee about which pixels of a specific card stay uncovered. A value >=
+    // crossCardExtent means no overlap is ever allowed (equivalent to omitting this
+    // concept entirely) - algorithms that don't support graceful overlap can ignore it.
+    minVisibleCrossExtent: number;
 }
 
 export type LayoutAlgorithm = (
