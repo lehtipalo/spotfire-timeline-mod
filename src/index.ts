@@ -2,6 +2,7 @@ import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo, ModPro
 import { select } from "d3-selection";
 import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
 import { scrollBarControl } from "./scrollBarControl";
+import { layoutEvents } from "./layout";
 
 export type Orientation = "horizontal" | "vertical";
 
@@ -339,32 +340,15 @@ window.Spotfire.initialize(async (mod) => {
         scrollValue = Math.min(scrollValue, maxScrollValue);
 
         let cards: Card[] = [];
-        // Tracks, per lane, the time index of the last card placed there - a lane is free
-        // again once a new card is far enough past it (>= timeSegmentsPerCard) to guarantee
-        // no overlap.
-        let lastPosition = new Map();
-        // Concurrent-lane count at the moment each card was placed (its own lane index + 1),
-        // in card order. Seeds the local-peak search below rather than one peak shared by
-        // every card that ever transitively chained together.
-        let rawPeakAtInsertion: number[] = [];
 
         timeLeaves.forEach((node: DataViewHierarchyNode) => {
             node.rows().forEach((row: DataViewRow) => {
                 if (hasEventAxis && row.categorical(eventAxisName).formattedValue() != "") {
-                    let index = row.categorical(timeAxisName).leafIndex;
-
-                    let vp = 0;
-                    while (lastPosition.get(vp) != undefined && index - lastPosition.get(vp) < timeSegmentsPerCard) {
-                        vp++;
-                    }
-                    lastPosition.set(vp, index);
-                    rawPeakAtInsertion.push(vp + 1);
-
                     cards.push({
                         description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
-                        verticalPosition: vp,
+                        verticalPosition: 0,
                         cardSpacing: 0,
-                        timePosition: index,
+                        timePosition: row.categorical(timeAxisName).leafIndex,
                         color: row.color(),
                         row: row
                     });
@@ -379,55 +363,16 @@ window.Spotfire.initialize(async (mod) => {
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
-        const naturalCardSpacing = crossCardExtent + 4 + crossSpaceBetweenCards;
-        function cardSpacingForPeak(peakLanes: number): number {
-            const lanesPerGroup = Math.ceil(peakLanes / numAlignmentGroups);
-            const totalSpaceRequired =
-                naturalCardSpacing * (numAlignmentGroups * lanesPerGroup) + timelineLevelHeight * timeHierarchyDepth;
-            return totalSpaceRequired < drawingAreaCrossSize
-                ? naturalCardSpacing
-                : (drawingAreaCrossSize -
-                      timelineLevelHeight * timeHierarchyDepth -
-                      (crossCardExtent + 4) * numAlignmentGroups) /
-                      (numAlignmentGroups * lanesPerGroup);
-        }
-        // Cards only ever need to be told apart from others close enough to actually risk
-        // landing near them along the timeline - a crowded pocket elsewhere shouldn't force
-        // every other card on the timeline to squeeze together too. So rather than one
-        // spacing value shared by an entire transitively-chained run of overlapping cards
-        // (which lets one distant pileup compress even the sparse stretches of that run),
-        // each card gets its own spacing sized to the worst concurrency found within
-        // timeSegmentsPerCard of it in either direction - the same distance already used to
-        // test whether two cards can conflict at all. Cards further apart than that can
-        // never land close enough to visually collide, so they have no need to agree on a
-        // spacing value.
-        //
-        // Known limit: this is a local approximation, not a global guarantee, in horizontal
-        // mode (timeSegmentsPerCard=2) - each card's window only looks 2 segments in either
-        // direction from itself, so two cards that directly overlap each other right at the
-        // edge of a dense pocket can still end up with slightly different spacing (one
-        // card's window reaches deeper into the pocket than the other's does). A true fix
-        // would require propagating peaks between directly-overlapping cards to a fixpoint,
-        // which degenerates back to whole-run sharing. In practice this shows up rarely,
-        // only right at a pocket's boundary, and is far smaller in both frequency and
-        // magnitude than the blanket over-compression it replaces. In vertical mode
-        // (timeSegmentsPerCard=1) this limit doesn't apply at all: two cards only ever
-        // directly overlap when they share the exact same timePosition, in which case both
-        // see the identical neighbor set (each other), so this collapses to an exact
-        // group-by-timePosition peak with no approximation.
+        const cardLayout = layoutEvents(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
+            timeSegmentsPerCard,
+            crossCardExtent,
+            crossSpaceBetweenCards,
+            numAlignmentGroups,
+            timelineCrossExtent: timelineLevelHeight * timeHierarchyDepth
+        });
         cards.forEach((card, i) => {
-            let peak = rawPeakAtInsertion[i];
-            for (let j = i - 1; j >= 0 && card.timePosition - cards[j].timePosition < timeSegmentsPerCard; j--) {
-                peak = Math.max(peak, rawPeakAtInsertion[j]);
-            }
-            for (
-                let j = i + 1;
-                j < cards.length && cards[j].timePosition - card.timePosition < timeSegmentsPerCard;
-                j++
-            ) {
-                peak = Math.max(peak, rawPeakAtInsertion[j]);
-            }
-            card.cardSpacing = cardSpacingForPeak(peak);
+            card.verticalPosition = cardLayout[i].verticalPosition;
+            card.cardSpacing = cardLayout[i].cardSpacing;
         });
 
         /**
