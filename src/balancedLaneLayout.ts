@@ -14,11 +14,26 @@ import { LayoutAlgorithm } from "./layoutTypes";
 // cluster is denser than the available cross-axis space, so a sufficiently crowded
 // cluster will overflow the drawing area rather than compress.
 //
-// primarySize and axisPosition aren't used - see the equivalent note in
-// greedyLaneLayout.ts, which applies here too.
+// primarySize isn't used - see the equivalent note in greedyLaneLayout.ts, which applies
+// here too. axisPosition likewise isn't read directly, but secondarySize *is* used below,
+// unlike in greedyLaneLayout.
 export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, secondarySize, axisPosition, context) => {
-    const { timeSegmentsPerCard, crossCardExtent, crossSpaceBetweenCards, numAlignmentGroups } = context;
+    const { timeSegmentsPerCard, crossCardExtent, crossSpaceBetweenCards, numAlignmentGroups, timelineCrossExtent } =
+        context;
     const cardSpacing = crossCardExtent + 4 + crossSpaceBetweenCards;
+
+    // A lane beyond this many is guaranteed to fall outside the drawing area, which clips
+    // with overflow:hidden and has no cross-axis scrollbar - such a card is unreachable no
+    // matter which excess lane it lands in. Once a side hits this cap, further events for
+    // that side skip the (otherwise unbounded) first-fit scan entirely, which is what
+    // keeps a single huge same-instant cluster (see the "Cluster stress test" datasets)
+    // from degrading to O(n^2): every place()/activeCount() call is bounded by this
+    // constant instead of by how many events have piled up so far. +2 is just slack
+    // against rounding, not a load-bearing margin - being off by one here only risks
+    // wasting a little extra (still O(1)) work on the last real lane, never hiding a card
+    // that would otherwise have been visible.
+    const availablePerSide = numAlignmentGroups === 2 ? (secondarySize - timelineCrossExtent) / 2 : secondarySize - timelineCrossExtent;
+    const maxVisibleLanes = Math.max(1, Math.ceil(availablePerSide / cardSpacing) + 2);
 
     // Process events in time order regardless of input order, but write results back by
     // original index so callers can zip the returned array 1:1 against their own events.
@@ -27,7 +42,10 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
 
     // A lane is free again once a new event's near edge (t - halfWidth) reaches or
     // passes the far edge of the last event placed there (t + halfWidth), recorded in
-    // `bands`. Returns the lane index the event was placed in.
+    // `bands`. Returns the lane index the event was placed in. Once `bands` has grown to
+    // maxVisibleLanes with none free, every further event on this side is off-screen
+    // regardless of index, so it's parked at the same overflow lane rather than growing
+    // `bands` (and therefore every future scan's cost) without bound.
     function place(bands: number[], timePosition: number): number {
         for (let k = 0; k < bands.length; k++) {
             if (timePosition - timeSegmentsPerCard / 2 >= bands[k]) {
@@ -35,8 +53,11 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
                 return k;
             }
         }
-        bands.push(timePosition + timeSegmentsPerCard / 2);
-        return bands.length - 1;
+        if (bands.length < maxVisibleLanes) {
+            bands.push(timePosition + timeSegmentsPerCard / 2);
+            return bands.length - 1;
+        }
+        return maxVisibleLanes;
     }
 
     // How many of this side's lanes are still occupied (would collide with an event
