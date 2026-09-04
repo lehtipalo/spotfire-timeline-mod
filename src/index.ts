@@ -443,7 +443,15 @@ window.Spotfire.initialize(async (mod) => {
         if (scrollAnchor != null) {
             scrollValue = resolveScrollValueFromAnchor(scrollAnchor);
         }
-        scrollValue = Math.min(scrollValue, maxScrollValue);
+        // Lower-bounded, not just clamped to maxScrollValue: resolveScrollValueFromAnchor
+        // can return a negative value (centerIndex - half the viewport, when the matched
+        // node's own range starts close to - or, on a total match failure, right at - leaf
+        // 0). An unclamped negative scrollValue produces a positive CSS translate (content
+        // pushed right, away from the left edge) while the scrollbar's handle position
+        // clips to its own track start - two different-looking but equally wrong visuals
+        // driven by the same out-of-range number, only resolved once the user's own
+        // interaction feeds a properly bounded value through onScrollValueChanged.
+        scrollValue = Math.max(0, Math.min(scrollValue, maxScrollValue));
         captureScrollAnchor(scrollValue);
 
         let cards: Card[] = [];
