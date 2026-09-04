@@ -29,7 +29,8 @@
     },
     "properties": [
         { "name": "orientation", "type": "string", "defaultValue": "horizontal" },
-        { "name": "cardAlignment", "type": "string", "defaultValue": "middle" }
+        { "name": "cardAlignment", "type": "string", "defaultValue": "middle" },
+        { "name": "layoutAlgorithm", "type": "string", "defaultValue": "balanced" }
     ],
     "files": ["index.html", "main.css", "bundle.js"]
 }

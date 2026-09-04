@@ -3,11 +3,17 @@ import { select } from "d3-selection";
 import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
 import { scrollBarControl } from "./scrollBarControl";
 import { balancedLaneLayout } from "./balancedLaneLayout";
+import { greedyLaneLayout } from "./greedyLaneLayout";
+import { LayoutAlgorithm } from "./layoutTypes";
 
-// Active layout algorithm - swap the import/assignment to compare against another
-// LayoutAlgorithm implementation (see src/layoutTypes.ts for the contract; src/greedyLaneLayout.ts
-// for the other one currently in the repo).
-const activeLayoutAlgorithm = balancedLaneLayout;
+// Layout algorithms selectable from the settings popout - add new LayoutAlgorithm
+// implementations here to make them switchable at runtime (see src/layoutTypes.ts for
+// the contract every entry must satisfy).
+const layoutAlgorithms: Record<string, LayoutAlgorithm> = {
+    greedy: greedyLaneLayout,
+    balanced: balancedLaneLayout
+};
+const defaultLayoutAlgorithmName = "balanced";
 
 export type Orientation = "horizontal" | "vertical";
 
@@ -156,7 +162,8 @@ window.Spotfire.initialize(async (mod) => {
         mod.visualization.data(),
         mod.windowSize(),
         mod.property<string>("orientation"),
-        mod.property<string>("cardAlignment")
+        mod.property<string>("cardAlignment"),
+        mod.property<string>("layoutAlgorithm")
     );
 
     reader.subscribe(render);
@@ -197,7 +204,8 @@ window.Spotfire.initialize(async (mod) => {
         dataView: DataView,
         windowSize: Spotfire.Size,
         orientationProperty: ModProperty<string>,
-        cardAlignmentProperty: ModProperty<string>
+        cardAlignmentProperty: ModProperty<string>,
+        layoutAlgorithmProperty: ModProperty<string>
     ) {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
@@ -214,6 +222,8 @@ window.Spotfire.initialize(async (mod) => {
         const cardAlignmentValue = cardAlignmentProperty.value<string>();
         const cardAlignment: "start" | "middle" | "end" =
             cardAlignmentValue === "start" || cardAlignmentValue === "end" ? cardAlignmentValue : "middle";
+        const layoutAlgorithmName = layoutAlgorithmProperty.value<string>() || defaultLayoutAlgorithmName;
+        const layoutAlgorithm = layoutAlgorithms[layoutAlgorithmName] || layoutAlgorithms[defaultLayoutAlgorithmName];
         // The axis along which the timeline runs/scrolls, and the axis across which cards
         // stack away from it - horizontal maps along->x/cross->y, vertical is the mirror.
         const mainSize = isHorizontal ? windowSize.width : windowSize.height;
@@ -368,7 +378,7 @@ window.Spotfire.initialize(async (mod) => {
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
-        const cardLayout = activeLayoutAlgorithm(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
+        const cardLayout = layoutAlgorithm(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
             timeSegmentsPerCard,
             crossCardExtent,
             crossSpaceBetweenCards,
@@ -449,6 +459,8 @@ window.Spotfire.initialize(async (mod) => {
                                 const [newOrientation, newCardAlignment] = (event.value as string).split("-");
                                 mod.property<string>("orientation").set(newOrientation);
                                 mod.property<string>("cardAlignment").set(newCardAlignment);
+                            } else if (event.name === "layoutAlgorithm") {
+                                mod.property<string>("layoutAlgorithm").set(event.value as string);
                             }
                         }
                     },
@@ -496,6 +508,23 @@ window.Spotfire.initialize(async (mod) => {
                                     text: "Right",
                                     checked: orientation === "vertical" && cardAlignment === "end",
                                     value: "vertical-end"
+                                })
+                            ]
+                        }),
+                        mod.controls.popout.section({
+                            heading: "Layout Algorithm",
+                            children: [
+                                mod.controls.popout.components.radioButton({
+                                    name: "layoutAlgorithm",
+                                    text: "Greedy",
+                                    checked: layoutAlgorithmName === "greedy",
+                                    value: "greedy"
+                                }),
+                                mod.controls.popout.components.radioButton({
+                                    name: "layoutAlgorithm",
+                                    text: "Balanced",
+                                    checked: layoutAlgorithmName === "balanced",
+                                    value: "balanced"
                                 })
                             ]
                         })
