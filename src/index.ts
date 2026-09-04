@@ -2,7 +2,12 @@ import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo, ModPro
 import { select } from "d3-selection";
 import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
 import { scrollBarControl } from "./scrollBarControl";
-import { greedyLaneLayout } from "./greedyLaneLayout";
+import { balancedLaneLayout } from "./balancedLaneLayout";
+
+// Active layout algorithm - swap the import/assignment to compare against another
+// LayoutAlgorithm implementation (see src/layoutTypes.ts for the contract; src/greedyLaneLayout.ts
+// for the other one currently in the repo).
+const activeLayoutAlgorithm = balancedLaneLayout;
 
 export type Orientation = "horizontal" | "vertical";
 
@@ -363,7 +368,7 @@ window.Spotfire.initialize(async (mod) => {
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
-        const cardLayout = greedyLaneLayout(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
+        const cardLayout = activeLayoutAlgorithm(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
             timeSegmentsPerCard,
             crossCardExtent,
             crossSpaceBetweenCards,
