@@ -3,17 +3,8 @@ import { select } from "d3-selection";
 import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
 import { scrollBarControl } from "./scrollBarControl";
 import { balancedLaneLayout } from "./balancedLaneLayout";
-import { greedyLaneLayout } from "./greedyLaneLayout";
-import { LayoutAlgorithm } from "./layoutTypes";
 
-// Layout algorithms selectable from the settings popout - add new LayoutAlgorithm
-// implementations here to make them switchable at runtime (see src/layoutTypes.ts for
-// the contract every entry must satisfy).
-const layoutAlgorithms: Record<string, LayoutAlgorithm> = {
-    greedy: greedyLaneLayout,
-    balanced: balancedLaneLayout
-};
-const defaultLayoutAlgorithmName = "balanced";
+const defaultCardDensity: "dense" | "spacious" = "dense";
 
 export type Orientation = "horizontal" | "vertical";
 
@@ -193,7 +184,7 @@ window.Spotfire.initialize(async (mod) => {
         mod.windowSize(),
         mod.property<string>("orientation"),
         mod.property<string>("cardAlignment"),
-        mod.property<string>("layoutAlgorithm")
+        mod.property<string>("cardDensity")
     );
 
     reader.subscribe(render);
@@ -235,7 +226,7 @@ window.Spotfire.initialize(async (mod) => {
         windowSize: Spotfire.Size,
         orientationProperty: ModProperty<string>,
         cardAlignmentProperty: ModProperty<string>,
-        layoutAlgorithmProperty: ModProperty<string>
+        cardDensityProperty: ModProperty<string>
     ) {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
@@ -252,8 +243,8 @@ window.Spotfire.initialize(async (mod) => {
         const cardAlignmentValue = cardAlignmentProperty.value<string>();
         const cardAlignment: "start" | "middle" | "end" =
             cardAlignmentValue === "start" || cardAlignmentValue === "end" ? cardAlignmentValue : "middle";
-        const layoutAlgorithmName = layoutAlgorithmProperty.value<string>() || defaultLayoutAlgorithmName;
-        const layoutAlgorithm = layoutAlgorithms[layoutAlgorithmName] || layoutAlgorithms[defaultLayoutAlgorithmName];
+        const cardDensityValue = cardDensityProperty.value<string>();
+        const cardDensity: "dense" | "spacious" = cardDensityValue === "spacious" ? "spacious" : defaultCardDensity;
         // The axis along which the timeline runs/scrolls, and the axis across which cards
         // stack away from it - horizontal maps along->x/cross->y, vertical is the mirror.
         const mainSize = isHorizontal ? windowSize.width : windowSize.height;
@@ -478,12 +469,14 @@ window.Spotfire.initialize(async (mod) => {
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
-        // Roughly one line of card text - .card has no explicit line-height (browser
-        // default, ~1.15-1.2x font size), so this is a deliberately approximate floor for
-        // how far a layout algorithm may let cards overlap, not a measurement of actual
-        // rendered text - see LayoutContext.minVisibleCrossExtent.
-        const minVisibleCrossExtent = fontSize * 1.4;
-        const cardLayout = layoutAlgorithm(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
+        // "Dense" lets cards overlap down to roughly one line of card text - .card has no
+        // explicit line-height (browser default, ~1.15-1.2x font size), so this is a
+        // deliberately approximate floor, not a measurement of actual rendered text. See
+        // LayoutContext.minVisibleCrossExtent. "Spacious" passes a value balancedLaneLayout
+        // clamps down to its own natural (non-overlapping) pitch - Infinity rather than
+        // duplicating that pitch formula here.
+        const minVisibleCrossExtent = cardDensity === "spacious" ? Infinity : fontSize * 1.4;
+        const cardLayout = balancedLaneLayout(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
             timeSegmentsPerCard,
             crossCardExtent,
             crossSpaceBetweenCards,
@@ -565,8 +558,8 @@ window.Spotfire.initialize(async (mod) => {
                                 const [newOrientation, newCardAlignment] = (event.value as string).split("-");
                                 mod.property<string>("orientation").set(newOrientation);
                                 mod.property<string>("cardAlignment").set(newCardAlignment);
-                            } else if (event.name === "layoutAlgorithm") {
-                                mod.property<string>("layoutAlgorithm").set(event.value as string);
+                            } else if (event.name === "cardDensity") {
+                                mod.property<string>("cardDensity").set(event.value as string);
                             }
                         }
                     },
@@ -618,19 +611,19 @@ window.Spotfire.initialize(async (mod) => {
                             ]
                         }),
                         mod.controls.popout.section({
-                            heading: "Layout Algorithm",
+                            heading: "Card Density",
                             children: [
                                 mod.controls.popout.components.radioButton({
-                                    name: "layoutAlgorithm",
-                                    text: "Greedy",
-                                    checked: layoutAlgorithmName === "greedy",
-                                    value: "greedy"
+                                    name: "cardDensity",
+                                    text: "Dense",
+                                    checked: cardDensity === "dense",
+                                    value: "dense"
                                 }),
                                 mod.controls.popout.components.radioButton({
-                                    name: "layoutAlgorithm",
-                                    text: "Balanced",
-                                    checked: layoutAlgorithmName === "balanced",
-                                    value: "balanced"
+                                    name: "cardDensity",
+                                    text: "Spacious",
+                                    checked: cardDensity === "spacious",
+                                    value: "spacious"
                                 })
                             ]
                         })
@@ -758,10 +751,44 @@ window.Spotfire.initialize(async (mod) => {
                 .style(crossSizeProp, (d) => `${calcConnectorCrossExtent(d)}px`);
 
             // Cards
+            //
+            // Filtered further than visibleCards (which only bounds the along axis): a
+            // dense cluster can pack far more events into a time window than lanes fit in
+            // the cross axis (see balancedLaneLayout's visible-lane cap), and those excess
+            // events are all still inside the along-axis window - without this, a cluster
+            // like the "Cluster stress test" datasets would join thousands of full cards
+            // (flexbox layout, text, hover listeners) into the DOM only for all but a
+            // handful to render nothing, clipped by #drawingLayer's overflow:hidden.
+            // Connectors stay on the unfiltered visibleCards - they're cheap (no text, no
+            // listeners) and, per calcConnectorCrossPos, a connector for an off-screen card
+            // always shows a real sliver reaching in from the timeline regardless of lane
+            // depth, which is the point: it's the signal that something exists there even
+            // once its card is out of reach.
+            //
+            // Sorted by lane (verticalPosition) so higher lanes - which sit further from
+            // the timeline, per calculateCardCrossPos - join the DOM later and so paint on
+            // top of the lower lanes they overlap in dense mode, covering each covered
+            // card's far-from-timeline edge and consistently leaving its near-timeline edge
+            // exposed. crossTextAlign (below) aligns each card's text to that same edge so
+            // the exposed sliver actually shows the start of its text instead of the blank
+            // padding around centered text.
+            let visibleCardsInCrossAxis = visibleCards
+                .filter((c: Card) => {
+                    let crossPos = calculateCardCrossPos(c);
+                    return crossPos + crossCardExtent > 0 && crossPos < drawingAreaCrossSize;
+                })
+                .sort((a, b) => a.verticalPosition - b.verticalPosition);
+
+            // Aligns a card's text toward its own near-timeline edge (see the join comment
+            // above) instead of .card's default centering, so a dense-mode overlap sliver
+            // reveals the start of the text rather than blank space around a centered block.
+            function crossTextAlign(d: Card): "flex-start" | "flex-end" {
+                return laneInfo(d.verticalPosition).group === 0 ? "flex-end" : "flex-start";
+            }
 
             cardContainer
                 .selectAll<HTMLDivElement, Card>(".card")
-                .data(visibleCards, (d: Card) => d.row.elementId(true))
+                .data(visibleCardsInCrossAxis, (d: Card) => d.row.elementId(true))
                 .join("div")
                 .attr("class", "card")
                 .attr("draggable", "false")
@@ -782,6 +809,8 @@ window.Spotfire.initialize(async (mod) => {
                 .style(crossProp, (d: Card) => `${calculateCardCrossPos(d)}px`)
                 .style("height", `${cardHeight}px`)
                 .style("width", `${cardWidth}px`)
+                .style("align-items", (d: Card) => (isHorizontal ? crossTextAlign(d) : "center"))
+                .style("justify-content", (d: Card) => (isHorizontal ? "center" : crossTextAlign(d)))
                 .style("background-color", (d) => `${d.color.hexCode}`)
                 .style("color", (d: Card) => `${contrastColor(d.color.hexCode)}`);
 

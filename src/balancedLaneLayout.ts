@@ -1,25 +1,21 @@
 import { LayoutAlgorithm, LayoutResult } from "./layoutTypes";
 
-// Same first-fit band packing as greedyLaneLayout (an event takes the first lane whose
-// last occupant is far enough behind it along the primary axis), but for "middle"
-// alignment - where events split across both sides of the axis - it chooses a side by
-// comparing how many bands are *currently active* on each side (i.e. how many lanes a
-// new event would actually collide with if placed there), not by lane parity. A
-// concurrent run of events therefore spreads evenly across both sides as it grows,
-// rather than strictly alternating in insertion order. Ties (equal active-band count on
-// both sides) alternate, starting with the "a" side.
+// Greedy interval-graph coloring along the primary axis: an event takes the first lane
+// whose last occupant is far enough behind it. For "middle" alignment - where events
+// split across both sides of the axis - it chooses a side by comparing how many bands are
+// *currently active* on each side (i.e. how many lanes a new event would actually collide
+// with if placed there), not by lane parity. A concurrent run of events therefore spreads
+// evenly across both sides as it grows, rather than strictly alternating in insertion
+// order. Ties (equal active-band count on both sides) alternate, starting with the "a" side.
 //
-// Lane pitch is resolved per event from its own *local* peak concurrency - like
-// greedyLaneLayout's cardSpacingForPeak, and for the same reason: a single value shared
-// by a whole side would let one crowded pocket compress an otherwise-roomy stretch far
-// away on the same side. It only squeezes as far as context.minVisibleCrossExtent - short
-// of that floor, further crowding overflows to the shared off-screen lane exactly as
-// before (greedyLaneLayout has no such floor, so it overflows the drawing area instead
-// once its own natural pitch can't be squeezed any further).
+// Lane pitch is resolved per event from its own *local* peak concurrency, not one value
+// shared by a whole side - that would let one crowded pocket compress an otherwise-roomy
+// stretch far away on the same side. It only squeezes as far as
+// context.minVisibleCrossExtent - short of that floor, further crowding overflows to the
+// shared off-screen lane instead of compressing past it.
 //
-// primarySize isn't used - see the equivalent note in greedyLaneLayout.ts, which applies
-// here too. axisPosition likewise isn't read directly, but secondarySize *is* used below,
-// unlike in greedyLaneLayout.
+// primarySize and axisPosition aren't used - lane assignment only depends on relative
+// timePosition differences, and pitch only on how much cross-axis room is available.
 export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, secondarySize, axisPosition, context) => {
     const {
         timeSegmentsPerCard,

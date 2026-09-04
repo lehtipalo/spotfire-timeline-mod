@@ -30,7 +30,7 @@
     "properties": [
         { "name": "orientation", "type": "string", "defaultValue": "horizontal" },
         { "name": "cardAlignment", "type": "string", "defaultValue": "middle" },
-        { "name": "layoutAlgorithm", "type": "string", "defaultValue": "balanced" }
+        { "name": "cardDensity", "type": "string", "defaultValue": "dense" }
     ],
     "files": ["index.html", "main.css", "bundle.js"]
 }
