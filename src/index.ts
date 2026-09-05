@@ -118,6 +118,19 @@ window.Spotfire.initialize(async (mod) => {
     // next to the timeSegmentSize math they feed into rather than being hoisted out on their own.
     let autoScroll = false;
     let autoScrollSpeed = 5;
+    // The setTimeout id of any in-flight auto-scroll loop, so a new render can cancel it -
+    // mirrors detachDragHandlers() for drag state, since the running scroll() closure captures
+    // timeSegmentSize/maxScrollValue/scrollContent/isHorizontal from whichever render started it,
+    // and those go stale the moment a new render lays things out differently (see #26).
+    let activeScrollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    function cancelAutoScroll() {
+        autoScroll = false;
+        if (activeScrollTimeoutId !== null) {
+            clearTimeout(activeScrollTimeoutId);
+            activeScrollTimeoutId = null;
+        }
+    }
     // Leftmost visible time segment index, persisted across renders so scroll position
     // survives marking/window updates instead of resetting on every re-render.
     let scrollValue = 0;
@@ -254,6 +267,8 @@ window.Spotfire.initialize(async (mod) => {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
         detachDragHandlers();
+        // Same idea for an in-flight auto-scroll loop - see cancelAutoScroll().
+        cancelAutoScroll();
         // A hovered card's mouseleave won't fire if its element is removed from the DOM
         // (a re-render can drop it if the underlying data changed) while the mouse never
         // actually left it, which would otherwise leave a stale tooltip on screen.
@@ -841,7 +856,7 @@ window.Spotfire.initialize(async (mod) => {
                     autoScroll = true;
                     scroll();
                 } else {
-                    autoScroll = false;
+                    cancelAutoScroll();
                 }
             }
         }
@@ -854,9 +869,9 @@ window.Spotfire.initialize(async (mod) => {
                 timelineScrollBar.setValue(scrollValue);
                 applyScrollTransform();
                 renderVisibleWindow();
-                setTimeout(scroll, autoScrollSpeed);
+                activeScrollTimeoutId = setTimeout(scroll, autoScrollSpeed);
             } else {
-                autoScroll = false;
+                cancelAutoScroll();
             }
         }
 
