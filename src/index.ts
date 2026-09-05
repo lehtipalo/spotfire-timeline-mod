@@ -913,18 +913,18 @@ window.Spotfire.initialize(async (mod) => {
 
             markingOverlay
                 .attr("class", "activeMarking")
-                .style("left", `${selection.x2 > selection.x1 ? selection.x1 : selection.x2}`)
-                .style("top", `${selection.y2 > selection.y1 ? selection.y1 : selection.y2}`)
-                .style("width", `${Math.abs(selection.x2 - selection.x1)}`)
-                .style("height", `${Math.abs(selection.y2 - selection.y1)}`);
+                .style("left", `${selection.x2 > selection.x1 ? selection.x1 : selection.x2}px`)
+                .style("top", `${selection.y2 > selection.y1 ? selection.y1 : selection.y2}px`)
+                .style("width", `${Math.abs(selection.x2 - selection.x1)}px`)
+                .style("height", `${Math.abs(selection.y2 - selection.y1)}px`);
         }
 
         function resetMarkingOverlay() {
             markingOverlay
-                .style("left", `${0}`)
-                .style("top", `${0}`)
-                .style("width", `${0}`)
-                .style("height", `${0}`)
+                .style("left", "0px")
+                .style("top", "0px")
+                .style("width", "0px")
+                .style("height", "0px")
                 .attr("class", "inactiveMarking");
         }
 
