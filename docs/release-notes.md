@@ -21,6 +21,7 @@
 - You can now scroll the timeline with the mouse wheel anywhere over the visualization.
 - Added a Card Density setting (Dense/Spacious): Dense allows cards to overlap more tightly to fit more of them on screen, while Spacious keeps every card fully separated.
 - The timeline now remembers where you were scrolled to when the Time axis granularity changes (e.g. drilling from years down to months), instead of jumping to an unrelated position.
+- Added an "Auto-scroll to marked" setting: when a row is marked in another visualization and no marked card is currently visible, the timeline scrolls to reveal it.
 - Fixed an issue where the last card on the timeline could be cut off at the edge when scrolled all the way to the end.
 - Fixed an issue where dragging the scrollbar could stop noticeably short of the last card, especially with a lot of data.
 - Fixed the timeline's left and right edge margins so they're now equal - previously there was a bit more empty space on the left than on the right.
