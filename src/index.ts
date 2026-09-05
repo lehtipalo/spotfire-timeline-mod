@@ -579,7 +579,10 @@ window.Spotfire.initialize(async (mod) => {
         // filter change elsewhere, a resize) that happens to leave the same rows marked - see
         // previousMarkedIdentity's declaration for why that distinction matters.
         const markedCards = cards.filter((c) => c.row.isMarked());
-        const markedIdentity = markedCards.map((c) => c.row.elementId(true)).join("|");
+        // JSON.stringify rather than a plain joined string - elementId(true) isn't documented
+        // as excluding any particular separator character, so joining with e.g. "|" risks two
+        // different marked sets hashing to the same identity if an id ever contained it.
+        const markedIdentity = JSON.stringify(markedCards.map((c) => c.row.elementId(true)));
         const markingChanged = previousMarkedIdentity !== null && markedIdentity !== previousMarkedIdentity;
         previousMarkedIdentity = markedIdentity;
 
@@ -899,7 +902,12 @@ window.Spotfire.initialize(async (mod) => {
         if (autoScrollToMarked && markingChanged && markedCards.length > 0) {
             const viewportStartPx = scrollValue * timeSegmentSize;
             const viewportEndPx = viewportStartPx + mainSize;
+            // A card the layout gave up placing in a real lane (c.offScreen) never reads as
+            // "visible" here even if its along-axis position falls inside the viewport - per
+            // renderVisibleWindow, only its connector's thin sliver shows for it, not its actual
+            // card text, so it isn't meaningfully visible to the user.
             const anyMarkedVisible = markedCards.some((c) => {
+                if (c.offScreen) return false;
                 const alongPos = calculateCardAlongPos(c);
                 return alongPos + alongCardExtent >= viewportStartPx && alongPos <= viewportEndPx;
             });
