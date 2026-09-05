@@ -488,10 +488,10 @@ window.Spotfire.initialize(async (mod) => {
             });
         });
 
-        // Shuffle cards on top of each other to fit across the stacking axis, within the
-        // actual visible drawing area (drawingAreaCrossSize), not the raw window - fitting
-        // against crossSize would let the bottom/trailing-most row overflow into (and get
-        // clipped by) the 35px strip reserved for the scrollbar.
+        // Shuffle cards on top of each other to fit across the stacking axis, within
+        // drawingAreaCrossSize - currently just crossSize (see its declaration above: the
+        // scrollbar floats on top rather than reserving a permanent strip), but named
+        // separately so lane-fitting keeps working unchanged if that ever stops being true.
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
