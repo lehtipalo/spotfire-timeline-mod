@@ -2,8 +2,18 @@ import { DataView, DataViewRow, DataViewHierarchyNode, DataViewColorInfo, ModPro
 import { select } from "d3-selection";
 import { hierarchy, partition, HierarchyNode, HierarchyRectangularNode } from "d3-hierarchy";
 import { scrollBarControl } from "./scrollBarControl";
+import { balancedLaneLayout } from "./balancedLaneLayout";
+import { contrastColor } from "./color";
+import { settingsButtonControl } from "./settingsButtonControl";
+
+// Keep in sync with the "cardDensity" property's defaultValue in mod-manifest.json - that's
+// what Spotfire assigns before this code ever runs, so this fallback (only reached once the
+// property already exists but holds something other than "spacious") should agree with it.
+const defaultCardDensity: "dense" | "spacious" = "dense";
 
 export type Orientation = "horizontal" | "vertical";
+export type CardAlignment = "start" | "middle" | "end";
+export type CardDensity = "dense" | "spacious";
 
 interface Card {
     timePosition: number;
@@ -11,6 +21,9 @@ interface Card {
     // Cross-axis lane pitch for this card - see the local-peak search below for how it's
     // derived. Filled in after verticalPosition is assigned.
     cardSpacing: number;
+    // Mirrors LayoutResult.offScreen - true when the layout algorithm gave up on finding
+    // this card a real lane, i.e. it's guaranteed unreachable regardless of pixel geometry.
+    offScreen: boolean;
     description: string;
     color: DataViewColorInfo;
     row: DataViewRow;
@@ -30,18 +43,29 @@ const timeAxisName = "Time",
     eventAxisName = "Event",
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
-    scrollBarHeight = 16;
-
-// stroke="currentColor" picks up #settingsButton's own `color` style via inheritance.
-const settingsIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-    <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-    <path d="M12 8a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
-    <path d="M4 8l8 0" />
-    <path d="M16 8l4 0" />
-    <path d="M6 16a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
-    <path d="M4 16l2 0" />
-    <path d="M10 16l10 0" />
-</svg>`;
+    // Flat, theme-independent gray rather than uiChromeColor (the settings button's own
+    // "interactive toolbar chrome" tone, derived from the visualization's font color) -
+    // Spotfire's native scrollbar thumb doesn't tint itself to the viz's own accent/font
+    // color, it's a fixed muted gray that works the same regardless of theme. Semi-
+    // transparent so it blends into whatever's underneath rather than reading as a flat
+    // opaque shape.
+    scrollBarColor = "rgba(150, 150, 150, 0.5)",
+    // .card's box-shadow (main.css) paints outside its layout box - up to offset+blur past
+    // the far edge (2px + 5px = 7px for the outer shadow layer). Reserved as
+    // LayoutContext.outerEdgeMargin so the outermost lane on each side never sits flush
+    // against #drawingLayer's overflow:hidden boundary, which would slice the shadow off
+    // that one edge while every other card shows it in full.
+    cardShadowBleed = 8,
+    // Purely cosmetic breathing room between #mod-container's own edge and Spotfire's own
+    // axis-selector chrome just outside it, which otherwise sits flush against our content.
+    // Must match #mod-container's CSS margin in main.css - see availableSize below for why
+    // that pairing matters (an unmatched margin/size would silently clip content again).
+    modMargin = 2,
+    // A mousedown-to-mouseup drag no bigger than this, in either direction, is treated as a
+    // click rather than a deliberate rectangle-marking gesture - see finishDrag. Big enough
+    // to absorb incidental mouse jitter between the two events, small enough that no
+    // intentional marking rectangle could be mistaken for one.
+    clickDragTolerancePx = 3;
 
 /**
  * Set up drawing layers
@@ -51,10 +75,8 @@ const timelineScrollBar = scrollBarControl(modContainer);
 
 let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
-// Tracks the mousemove/mouseup/blur listeners of an in-progress drag selection so a
-// stale drag from a previous render (with rows belonging to an already disposed
-// DataView) can be cancelled when a new render arrives before the user releases the
-// mouse.
+// Remembers which listeners belong to the current in-progress drag,  so if a re-render happens mid-drag,
+// the old (now-stale) listeners can be found and removed before they run against disposed data
 let activeMouseMoveHandler: ((event: MouseEvent) => void) | null = null;
 let activeMouseUpHandler: ((event: MouseEvent) => void) | null = null;
 let activeBlurHandler: (() => void) | null = null;
@@ -81,6 +103,8 @@ window.Spotfire.initialize(async (mod) => {
      */
     const context = mod.getRenderContext();
 
+    const settingsButton = settingsButtonControl(modContainer, mod);
+
     // The Mods API exposes only the (deliberately muted) scale-line color and the full-
     // strength font color - neither matches the lighter tint the native toolbar icons use.
     // Blending font color toward the background approximates that native chrome weight.
@@ -89,14 +113,49 @@ window.Spotfire.initialize(async (mod) => {
     let fontSize = parseInt(context.styling.general.font.fontSize.toString()); // workaround bug in Spotfire 11.4 where fontSize returns string
 
     let timelineLevelHeight = fontSize * 2;
-    // cardWidth/cardHeight/edgeMargin are computed per-render (see render()) - they're
-    // sized in relation to timeSegmentSize, which depends on the current viewport and time
-    // axis, neither of which are known this early.
+    // cardWidth/cardHeight/edgeMargin are computed per-render (see render()) - though they
+    // only depend on fontSize and card spacing, not on the viewport or time axis, they live
+    // next to the timeSegmentSize math they feed into rather than being hoisted out on their own.
     let autoScroll = false;
     let autoScrollSpeed = 5;
     // Leftmost visible time segment index, persisted across renders so scroll position
     // survives marking/window updates instead of resetting on every re-render.
     let scrollValue = 0;
+    // Where scrollValue currently points, expressed so it can be relocated after a Time
+    // axis expression edit rebuilds the hierarchy with a different leaf count/depth -
+    // scrollValue itself is never actually reset by that, it's only ever clamped, but the
+    // same raw index silently starts pointing at an unrelated point in time once the
+    // hierarchy reshapes.
+    //
+    // `path` is, for each ancestor level (top down, excluding the invisible true root) of
+    // the leaf at the *center* of the viewport, that node's key plus its position among its
+    // own siblings - e.g. [{key: "1946", ...}, {key: "Jun", ...}] for a Year > Month leaf.
+    // Resolving walks the new hierarchy from the root matching path entries level by level
+    // - each level's own key against itself, which stays valid regardless of how many
+    // levels exist above or below it. `key` (rather than formattedValue()) is used because
+    // it's guaranteed unique among siblings, whereas two distinct sibling values can format
+    // to the same display string. When a level's exact key is no longer present (e.g. that
+    // bucket was filtered/marked out), the walk falls back to the child at the closest
+    // relative sibling position instead of giving up - so a single missing bucket doesn't
+    // widen the eventual match all the way out to some broad ancestor's entire leaf range.
+    // `fraction` (0-1) is the remaining sub-position within the deepest matched node's own
+    // leaf range.
+    //
+    // Two simpler approaches were tried first and both broke on real data:
+    //  - Anchoring to a leaf's own DataViewHierarchyNode.value() directly: only reflects
+    //    that leaf's own level (e.g. just a month number, not the year it's in), so it
+    //    isn't comparable across hierarchies with a different number of levels.
+    //  - Anchoring to a fraction of the total leaf count: assumes every bucket is the same
+    //    size, which breaks by a roughly constant offset the moment any bucket (almost
+    //    always the first or last) is partial.
+    // An earlier attempt at this same path-match approach broke round-tripping outright,
+    // traced to wrongly assuming (from a misread of "undefined for root level nodes" in
+    // the docs) that a top-level node's own .parent is undefined - confirmed via live
+    // console logging that it isn't: it points to a real root node (formattedValue() "",
+    // value() null), whose *own* .parent is what's actually undefined. The capture walk
+    // below stops there correctly now.
+    type ScrollAnchorPathEntry = { key: string; siblingIndex: number; siblingCount: number };
+    let scrollAnchor: { path: ScrollAnchorPathEntry[]; fraction: number } | null = null;
     // Whether the timeline currently overflows the viewport at all, and whether the mouse
     // is over the visualization - the scrollbar only shows when both are true. Persisted
     // (rather than render-local) since hover can change independently of any render pass.
@@ -113,10 +172,7 @@ window.Spotfire.initialize(async (mod) => {
 
     // Unlike the scrollbar, the settings button shows on any hover, regardless of overflow.
     function updateSettingsButtonVisibility() {
-        modContainer
-            .select("#settingsButton")
-            .style("opacity", isHovering ? "1" : "0")
-            .style("pointer-events", isHovering ? "auto" : "none");
+        settingsButton.setVisible(isHovering);
     }
 
     modContainer.on("mouseenter", () => {
@@ -150,7 +206,8 @@ window.Spotfire.initialize(async (mod) => {
         mod.visualization.data(),
         mod.windowSize(),
         mod.property<string>("orientation"),
-        mod.property<string>("cardAlignment")
+        mod.property<string>("cardAlignment"),
+        mod.property<string>("cardDensity")
     );
 
     reader.subscribe(render);
@@ -191,7 +248,8 @@ window.Spotfire.initialize(async (mod) => {
         dataView: DataView,
         windowSize: Spotfire.Size,
         orientationProperty: ModProperty<string>,
-        cardAlignmentProperty: ModProperty<string>
+        cardAlignmentProperty: ModProperty<string>,
+        cardDensityProperty: ModProperty<string>
     ) {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
@@ -208,10 +266,23 @@ window.Spotfire.initialize(async (mod) => {
         const cardAlignmentValue = cardAlignmentProperty.value<string>();
         const cardAlignment: "start" | "middle" | "end" =
             cardAlignmentValue === "start" || cardAlignmentValue === "end" ? cardAlignmentValue : "middle";
+        const cardDensityValue = cardDensityProperty.value<string>();
+        const cardDensity: "dense" | "spacious" = cardDensityValue === "spacious" ? "spacious" : defaultCardDensity;
+        // #mod-container is given a matching CSS margin (see main.css) so its content sits
+        // a few pixels clear of Spotfire's own axis-selector chrome just outside our
+        // rendering area, instead of butting flush against it. windowSize itself is always
+        // the *full* area Spotfire allotted us - #mod-container's own JS-set size must be
+        // shrunk by the same margin on both sides, or it would overflow past its own margin
+        // and get sliced off by body's overflow:hidden, the same way an unreset default body
+        // margin once did (see the box-sizing fix history in balancedLaneLayout/main.css).
+        const availableSize = {
+            width: windowSize.width - 2 * modMargin,
+            height: windowSize.height - 2 * modMargin
+        };
         // The axis along which the timeline runs/scrolls, and the axis across which cards
         // stack away from it - horizontal maps along->x/cross->y, vertical is the mirror.
-        const mainSize = isHorizontal ? windowSize.width : windowSize.height;
-        const crossSize = isHorizontal ? windowSize.height : windowSize.width;
+        const mainSize = isHorizontal ? availableSize.width : availableSize.height;
+        const crossSize = isHorizontal ? availableSize.height : availableSize.width;
         const alongProp: "left" | "top" = isHorizontal ? "left" : "top";
         const crossProp: "left" | "top" = isHorizontal ? "top" : "left";
         const alongSizeProp: "width" | "height" = isHorizontal ? "width" : "height";
@@ -262,67 +333,146 @@ window.Spotfire.initialize(async (mod) => {
 
         let timeLeaves = timeHierarchyRoot.leaves();
 
+        // Turns a previously captured scrollAnchor back into a scrollValue (the viewport's
+        // left edge) for this render's (possibly reshaped) hierarchy: walks from the root
+        // matching anchor.path level by level - each level's own key against itself, so it
+        // stays valid regardless of how many levels exist above or below it. A level whose
+        // exact key is gone still gets approximated via its stored sibling position rather
+        // than aborting the walk, so a single filtered/marked-out bucket only nudges the
+        // result off by roughly one sibling at that level instead of widening it out to
+        // whatever ancestor's entire leaf range. Once the walk ends (at an exact leaf, if
+        // every level matched or was approximated, or earlier if some level had no children
+        // at all), the stored sub-fraction is applied across that node's real leaf range.
+        function resolveScrollValueFromAnchor(anchor: { path: ScrollAnchorPathEntry[]; fraction: number }): number {
+            let node: DataViewHierarchyNode = timeHierarchyRoot!;
+            for (const entry of anchor.path) {
+                if (!node.children || node.children.length === 0) break;
+                const exact = node.children.find((c) => (c.key ?? c.formattedValue()) === entry.key);
+                if (exact) {
+                    node = exact;
+                    continue;
+                }
+                // The exact sibling is gone (e.g. filtered/marked out) - fall back to the
+                // child at the closest relative sibling position, so the walk still lands
+                // near where it was instead of stopping here and taking this whole node's
+                // (possibly much larger) leaf range as the match.
+                const ratio = entry.siblingIndex / Math.max(1, entry.siblingCount - 1);
+                const approxIndex = Math.round(ratio * (node.children.length - 1));
+                node = node.children[Math.min(node.children.length - 1, Math.max(0, approxIndex))];
+            }
+            const leaves = node.leaves();
+            if (leaves.length === 0) return 0;
+            const startIndex = leaves[0].leafIndex ?? 0;
+            const centerIndex = startIndex + anchor.fraction * leaves.length;
+            return centerIndex - visibleTimeSegments / 2;
+        }
+
+        // Captures the current scroll position as a scrollAnchor (see its declaration for
+        // why a path match rather than a value or a fraction), so a later render (with a
+        // possibly-reshaped hierarchy, e.g. from a Time axis expression edit that changes
+        // the granularity) can relocate roughly the same relative position instead of
+        // reinterpreting the same raw index against a hierarchy it no longer describes.
+        //
+        // Anchored to the *center* of the viewport, not its left edge (scrollValue itself):
+        // a granularity change also changes how many leaves fit on screen at once (e.g.
+        // ~18 years fit before hitting the minimum card-width floor, but only ~18 months
+        // do after drilling in), so preserving just the left edge's position leaves the
+        // *center* of what's visible dragged backwards by roughly half of however much the
+        // viewport's real-time span just shrank - which reads as a jarring jump even though
+        // the edge itself never moved. Anchoring the point the user is actually looking at
+        // avoids that.
+        function captureScrollAnchor(value: number) {
+            if (timeLeaves.length === 0) {
+                scrollAnchor = null;
+                return;
+            }
+            const centerValue = value + visibleTimeSegments / 2;
+            const leafIndex = Math.min(timeLeaves.length - 1, Math.max(0, Math.floor(centerValue)));
+            const path: ScrollAnchorPathEntry[] = [];
+            // Stops once a node's own .parent is undefined - the true root - rather than
+            // once the node itself is falsy, since a top-level node's .parent is a real
+            // (root) object, not undefined; see the comment on scrollAnchor's declaration.
+            let node: DataViewHierarchyNode | undefined = timeLeaves[leafIndex];
+            while (node && node.parent !== undefined) {
+                const siblings = node.parent.children ?? [node];
+                const siblingIndex = Math.max(0, siblings.indexOf(node));
+                path.unshift({
+                    key: node.key ?? node.formattedValue(),
+                    siblingIndex,
+                    siblingCount: siblings.length,
+                });
+                node = node.parent;
+            }
+            scrollAnchor = { path, fraction: centerValue - Math.floor(centerValue) };
+        }
+
         let timeHierarchyDepth = timeHierarchy?.levels.length || 0;
 
         /**
          * Calculate Layout
          */
-        const alongSpaceBetweenCards = isHorizontal ? horizontalSpaceBetweenCards : verticalSpaceBetweenCards;
         const crossSpaceBetweenCards = isHorizontal ? verticalSpaceBetweenCards : horizontalSpaceBetweenCards;
 
-        // How many time segments a card's along-axis footprint spans, by construction (see
-        // timeSegmentSize below): 1 in vertical mode, so a lane conflict only ever happens
-        // between cards in the exact same time segment, not merely nearby ones; 2 in
-        // horizontal mode, so consecutive conflicting cards always land in alternating
-        // lanes - and, under "middle" alignment, alternating sides of the timeline, since
-        // lane parity picks the side. See the lane-assignment loop below.
-        const alongSegmentsPerCard = isHorizontal ? 2 : 1;
-        const alongGap = alongSpaceBetweenCards;
+        // cardWidth, cardHeight and minimumTimeSegmentWidth are independent of each other -
+        // each can change on its own (e.g. once these become mod properties) without the
+        // others needing to move in lockstep. defaultCardBaseSize is just a shared building
+        // block behind today's fontSize-derived defaults, not a dependency between them.
+        const defaultCardBaseSize = 3.2 * (fontSize * 4);
+        // Card size is pinned to a fixed value rather than to the live timeSegmentSize
+        // computed below, which can grow arbitrarily large: a short timeline with only a
+        // handful of segments would otherwise stretch freeTimeSegmentSize - and with it the
+        // cards - well past a readable size. Segments themselves are still free to grow past
+        // the card's own size for breathing room; only the card box stays fixed.
+        const cardWidth = defaultCardBaseSize;
+        const cardHeight = (defaultCardBaseSize + horizontalSpaceBetweenCards) / 2 - verticalSpaceBetweenCards;
+        // The floor timeSegmentSize is never allowed to shrink past - see freeTimeSegmentSize
+        // below.
+        const minimumTimeSegmentWidth = (defaultCardBaseSize + horizontalSpaceBetweenCards) / 2;
 
-        // The card's along-axis dimension is defined below as exactly
-        // alongSegmentsPerCard * timeSegmentSize - alongGap, so a card's footprint fills
-        // its segment(s) with no spillover into a neighboring one. That makes
-        // timeSegmentSize and the card's along-axis size mutually dependent: timeSegmentSize
-        // reserves edgeMargin for the card centered on the first/last segment to spill into,
-        // and edgeMargin is half that same card size. Solved in closed form rather than
-        // iterating to a fixed point:
-        //   timeSegmentSize = (mainSize - 2*edgeMargin) / N
-        //   edgeMargin = (alongSegmentsPerCard*timeSegmentSize - alongGap) / 2
-        //   => timeSegmentSize = (mainSize + alongGap) / (N + alongSegmentsPerCard)
-        //
-        // cardWidthAtFloor anchors the smallest a time segment is ever allowed to get
-        // (minimumTimeSegmentWidth) to the same card width this mod used before card size
-        // was tied to segment size, so a fully crowded timeline stays exactly as readable.
-        const cardWidthAtFloor = 3.2 * (fontSize * 4);
-        const minimumTimeSegmentWidth = (cardWidthAtFloor + horizontalSpaceBetweenCards) / 2;
-        const freeTimeSegmentSize = (mainSize + alongGap) / (timeLeaves.length + alongSegmentsPerCard);
-        let timeSegmentSize = Math.max(minimumTimeSegmentWidth, freeTimeSegmentSize);
-
-        const cardHeight = timeSegmentSize - verticalSpaceBetweenCards;
-        const cardWidth = 2 * timeSegmentSize - horizontalSpaceBetweenCards;
         // The card's fixed rendered box (cardWidth x cardHeight) never rotates - text must
         // stay upright in both modes - but which of its two dimensions plays the "along the
         // timeline" role (spacing/collision) vs the "across/stacking" role swaps by orientation.
         const alongCardExtent = isHorizontal ? cardWidth : cardHeight;
         const crossCardExtent = isHorizontal ? cardHeight : cardWidth;
         // The actual reserved space at each edge of the content for a card centered on the
-        // first/last segment to spill into - exactly half the along-axis card size, per the
-        // derivation above.
+        // first/last segment to spill into - exactly half the along-axis card size.
         const edgeMargin = alongCardExtent / 2;
-        const timeSegmentsPerCard = alongSegmentsPerCard;
-        const drawingAreaCrossSize = crossSize - 35;
+
+        // However much of mainSize, after reserving edgeMargin on both ends, each of the N
+        // segments gets. Still floored at minimumTimeSegmentWidth so a crowded timeline never
+        // squeezes segment spacing tighter than that, falling back to scrolling instead (see
+        // needsScroll below).
+        const freeTimeSegmentSize =
+            timeLeaves.length > 0 ? (mainSize - 2 * edgeMargin) / timeLeaves.length : minimumTimeSegmentWidth;
+        let timeSegmentSize = Math.max(minimumTimeSegmentWidth, freeTimeSegmentSize);
+
+        // How many time segments a card's along-axis footprint actually spans, in the same
+        // units balancedLaneLayout's timePosition uses (1.0 = one leaf) - derived from the
+        // card's real pixel size and the segment size actually in effect this render, rather
+        // than assumed to be a fixed round number. Now that cardWidth/cardHeight no longer
+        // have to track timeSegmentSize, a card can genuinely span more than its immediate
+        // neighbor's worth of segments (a wide card in horizontal mode, or - once cardHeight
+        // varies independently - a tall one in vertical mode); this ratio is what lets the
+        // lane-assignment loop in balancedLaneLayout.ts pick that up without any change to
+        // that algorithm itself.
+        const timeSegmentsPerCard = alongCardExtent / timeSegmentSize;
+        // No longer trimmed for the scrollbar - like Spotfire's own native visualizations,
+        // the scrollbar (see #scrollBar's z-index in main.css) floats on top of the drawing
+        // area on hover rather than claiming permanent dead space beside it. It's already
+        // positioned against the true crossSize edge (see the timelineScrollBar.update call
+        // below), so content can now use that space right up to the same edge.
+        const drawingAreaCrossSize = crossSize;
         const timelineCrossExtent = timelineLevelHeight * timeHierarchyDepth;
-        // Centered within the actual visible (scrollbar-trimmed) drawing area, not the raw
-        // window - centering on crossSize would push the timeline (and everything stacked
-        // off it) 35px lower/righter than the clipped viewport actually has room for.
+        // Centered within the drawing area, not the raw window - the two now coincide since
+        // the scrollbar floats rather than being trimmed out of crossSize (see above).
         // In "start"/"end" alignment, all cards render on one side, so the timeline instead
         // anchors near the opposite edge to free up the rest of the cross axis for stacking.
         const timeLineCrossPos =
             cardAlignment === "start"
                 ? crossSpaceBetweenCards
                 : cardAlignment === "end"
-                ? drawingAreaCrossSize - crossSpaceBetweenCards - timelineCrossExtent
-                : drawingAreaCrossSize / 2 - timelineCrossExtent / 2;
+                  ? drawingAreaCrossSize - crossSpaceBetweenCards - timelineCrossExtent
+                  : drawingAreaCrossSize / 2 - timelineCrossExtent / 2;
         const drawingAreaAlongSize = timeLeaves.length * timeSegmentSize + edgeMargin * 2;
         const timelineWidth = timeLeaves.length * timeSegmentSize;
         const timelineHeight = (timeHierarchyDepth + 1) * timelineLevelHeight;
@@ -336,35 +486,31 @@ window.Spotfire.initialize(async (mod) => {
         const visibleTimeSegments = mainSize / timeSegmentSize;
         const maxScrollValue = Math.max(0, (drawingAreaAlongSize - mainSize) / timeSegmentSize);
         needsScroll = drawingAreaAlongSize > mainSize;
-        scrollValue = Math.min(scrollValue, maxScrollValue);
+        if (scrollAnchor != null) {
+            scrollValue = resolveScrollValueFromAnchor(scrollAnchor);
+        }
+        // Lower-bounded, not just clamped to maxScrollValue: resolveScrollValueFromAnchor
+        // can return a negative value (centerIndex - half the viewport, when the matched
+        // node's own range starts close to - or, on a total match failure, right at - leaf
+        // 0). An unclamped negative scrollValue produces a positive CSS translate (content
+        // pushed right, away from the left edge) while the scrollbar's handle position
+        // clips to its own track start - two different-looking but equally wrong visuals
+        // driven by the same out-of-range number, only resolved once the user's own
+        // interaction feeds a properly bounded value through onScrollValueChanged.
+        scrollValue = Math.max(0, Math.min(scrollValue, maxScrollValue));
+        captureScrollAnchor(scrollValue);
 
         let cards: Card[] = [];
-        // Tracks, per lane, the time index of the last card placed there - a lane is free
-        // again once a new card is far enough past it (>= timeSegmentsPerCard) to guarantee
-        // no overlap.
-        let lastPosition = new Map();
-        // Concurrent-lane count at the moment each card was placed (its own lane index + 1),
-        // in card order. Seeds the local-peak search below rather than one peak shared by
-        // every card that ever transitively chained together.
-        let rawPeakAtInsertion: number[] = [];
 
         timeLeaves.forEach((node: DataViewHierarchyNode) => {
             node.rows().forEach((row: DataViewRow) => {
                 if (hasEventAxis && row.categorical(eventAxisName).formattedValue() != "") {
-                    let index = row.categorical(timeAxisName).leafIndex;
-
-                    let vp = 0;
-                    while (lastPosition.get(vp) != undefined && index - lastPosition.get(vp) < timeSegmentsPerCard) {
-                        vp++;
-                    }
-                    lastPosition.set(vp, index);
-                    rawPeakAtInsertion.push(vp + 1);
-
                     cards.push({
                         description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
-                        verticalPosition: vp,
+                        verticalPosition: 0,
                         cardSpacing: 0,
-                        timePosition: index,
+                        offScreen: false,
+                        timePosition: row.categorical(timeAxisName).leafIndex,
                         color: row.color(),
                         row: row
                     });
@@ -372,62 +518,33 @@ window.Spotfire.initialize(async (mod) => {
             });
         });
 
-        // Shuffle cards on top of each other to fit across the stacking axis, within the
-        // actual visible drawing area (drawingAreaCrossSize), not the raw window - fitting
-        // against crossSize would let the bottom/trailing-most row overflow into (and get
-        // clipped by) the 35px strip reserved for the scrollbar.
+        // Shuffle cards on top of each other to fit across the stacking axis, within
+        // drawingAreaCrossSize - currently just crossSize (see its declaration above: the
+        // scrollbar floats on top rather than reserving a permanent strip), but named
+        // separately so lane-fitting keeps working unchanged if that ever stops being true.
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
-        const naturalCardSpacing = crossCardExtent + 4 + crossSpaceBetweenCards;
-        function cardSpacingForPeak(peakLanes: number): number {
-            const lanesPerGroup = Math.ceil(peakLanes / numAlignmentGroups);
-            const totalSpaceRequired =
-                naturalCardSpacing * (numAlignmentGroups * lanesPerGroup) + timelineLevelHeight * timeHierarchyDepth;
-            return totalSpaceRequired < drawingAreaCrossSize
-                ? naturalCardSpacing
-                : (drawingAreaCrossSize -
-                      timelineLevelHeight * timeHierarchyDepth -
-                      (crossCardExtent + 4) * numAlignmentGroups) /
-                      (numAlignmentGroups * lanesPerGroup);
-        }
-        // Cards only ever need to be told apart from others close enough to actually risk
-        // landing near them along the timeline - a crowded pocket elsewhere shouldn't force
-        // every other card on the timeline to squeeze together too. So rather than one
-        // spacing value shared by an entire transitively-chained run of overlapping cards
-        // (which lets one distant pileup compress even the sparse stretches of that run),
-        // each card gets its own spacing sized to the worst concurrency found within
-        // timeSegmentsPerCard of it in either direction - the same distance already used to
-        // test whether two cards can conflict at all. Cards further apart than that can
-        // never land close enough to visually collide, so they have no need to agree on a
-        // spacing value.
-        //
-        // Known limit: this is a local approximation, not a global guarantee, in horizontal
-        // mode (timeSegmentsPerCard=2) - each card's window only looks 2 segments in either
-        // direction from itself, so two cards that directly overlap each other right at the
-        // edge of a dense pocket can still end up with slightly different spacing (one
-        // card's window reaches deeper into the pocket than the other's does). A true fix
-        // would require propagating peaks between directly-overlapping cards to a fixpoint,
-        // which degenerates back to whole-run sharing. In practice this shows up rarely,
-        // only right at a pocket's boundary, and is far smaller in both frequency and
-        // magnitude than the blanket over-compression it replaces. In vertical mode
-        // (timeSegmentsPerCard=1) this limit doesn't apply at all: two cards only ever
-        // directly overlap when they share the exact same timePosition, in which case both
-        // see the identical neighbor set (each other), so this collapses to an exact
-        // group-by-timePosition peak with no approximation.
+        // "Dense" lets cards overlap down to roughly one line of card text - .card has no
+        // explicit line-height (browser default, ~1.15-1.2x font size), so this is a
+        // deliberately approximate floor, not a measurement of actual rendered text. See
+        // LayoutContext.minVisibleCrossExtent. "Spacious" passes a value balancedLaneLayout
+        // clamps down to its own natural (non-overlapping) pitch - Infinity rather than
+        // duplicating that pitch formula here.
+        const minVisibleCrossExtent = cardDensity === "spacious" ? Infinity : fontSize * 1.4;
+        const cardLayout = balancedLaneLayout(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
+            timeSegmentsPerCard,
+            crossCardExtent,
+            crossSpaceBetweenCards,
+            numAlignmentGroups,
+            timelineCrossExtent,
+            minVisibleCrossExtent,
+            outerEdgeMargin: cardShadowBleed
+        });
         cards.forEach((card, i) => {
-            let peak = rawPeakAtInsertion[i];
-            for (let j = i - 1; j >= 0 && card.timePosition - cards[j].timePosition < timeSegmentsPerCard; j--) {
-                peak = Math.max(peak, rawPeakAtInsertion[j]);
-            }
-            for (
-                let j = i + 1;
-                j < cards.length && cards[j].timePosition - card.timePosition < timeSegmentsPerCard;
-                j++
-            ) {
-                peak = Math.max(peak, rawPeakAtInsertion[j]);
-            }
-            card.cardSpacing = cardSpacingForPeak(peak);
+            card.verticalPosition = cardLayout[i].verticalPosition;
+            card.cardSpacing = cardLayout[i].cardSpacing;
+            card.offScreen = cardLayout[i].offScreen;
         });
 
         /**
@@ -458,109 +575,27 @@ window.Spotfire.initialize(async (mod) => {
             .join("div")
             .attr("id", "markingOverlay")
             .attr("class", "inactiveMarking");
-        const settingsButtonSize = 24;
-        // A plain top-align collides with Spotfire's floating action button (FAB), which
-        // renders in the visualization's top-right corner regardless of the mod's own
-        // horizontal/vertical layout orientation - SIP mods deliberately reserve clearance
-        // there instead of top-aligning their own config button. The FAB's own container sits
-        // at top:16px in this same coordinate space (confirmed via devtools); its buttons are
-        // the standard 32px Spotfire action-button size, so this clears its bottom edge
-        // (~48px) with a small margin.
-        const settingsButtonTop = 56;
-        // Same right inset regardless of orientation - keeps the button aligned under the FAB
-        // (which uses this same inset) instead of shifting sideways when orientation changes,
-        // and vertical mode still needs it clear of the scrollbar running down that edge.
-        const settingsButtonRight = scrollBarHeight + 8;
-
-        let settingsButton = modContainer
-            .selectAll("#settingsButton")
-            .data([null])
-            .join("div")
-            .attr("id", "settingsButton")
-            .style("top", `${settingsButtonTop}px`)
-            .style("right", `${settingsButtonRight}px`)
-            // Interactive UI chrome (unlike the muted scale-line color used for the
-            // timeline/connectors) should read like native Spotfire toolbar icons, so it
-            // uses the theme's primary foreground color rather than the gridline color.
-            .style("color", uiChromeColor)
-            .style("border-color", uiChromeColor)
-            // Without a fill, the timeline underneath shows through the button wherever
-            // it overlaps - give it the mod's own background so it reads as opaque chrome.
-            .style("background-color", context.styling.general.backgroundColor)
-            .on("click", () => {
-                mod.controls.popout.show(
-                    {
-                        x: windowSize.width - settingsButtonRight - settingsButtonSize,
-                        y: settingsButtonTop + settingsButtonSize / 2,
-                        alignment: "Right",
-                        autoClose: true,
-                        onChange: (event) => {
-                            if (event.name === "orientationAlignment") {
-                                const [newOrientation, newCardAlignment] = (event.value as string).split("-");
-                                mod.property<string>("orientation").set(newOrientation);
-                                mod.property<string>("cardAlignment").set(newCardAlignment);
-                            }
-                        }
-                    },
-                    () => [
-                        mod.controls.popout.section({
-                            heading: "Horizontal",
-                            children: [
-                                mod.controls.popout.components.radioButton({
-                                    name: "orientationAlignment",
-                                    text: "Top",
-                                    checked: orientation === "horizontal" && cardAlignment === "start",
-                                    value: "horizontal-start"
-                                }),
-                                mod.controls.popout.components.radioButton({
-                                    name: "orientationAlignment",
-                                    text: "Middle",
-                                    checked: orientation === "horizontal" && cardAlignment === "middle",
-                                    value: "horizontal-middle"
-                                }),
-                                mod.controls.popout.components.radioButton({
-                                    name: "orientationAlignment",
-                                    text: "Bottom",
-                                    checked: orientation === "horizontal" && cardAlignment === "end",
-                                    value: "horizontal-end"
-                                })
-                            ]
-                        }),
-                        mod.controls.popout.section({
-                            heading: "Vertical",
-                            children: [
-                                mod.controls.popout.components.radioButton({
-                                    name: "orientationAlignment",
-                                    text: "Left",
-                                    checked: orientation === "vertical" && cardAlignment === "start",
-                                    value: "vertical-start"
-                                }),
-                                mod.controls.popout.components.radioButton({
-                                    name: "orientationAlignment",
-                                    text: "Middle",
-                                    checked: orientation === "vertical" && cardAlignment === "middle",
-                                    value: "vertical-middle"
-                                }),
-                                mod.controls.popout.components.radioButton({
-                                    name: "orientationAlignment",
-                                    text: "Right",
-                                    checked: orientation === "vertical" && cardAlignment === "end",
-                                    value: "vertical-end"
-                                })
-                            ]
-                        })
-                    ]
-                );
-            });
-        settingsButton.html(settingsIconSvg);
+        settingsButton.update({
+            uiChromeColor,
+            backgroundColor: context.styling.general.backgroundColor,
+            windowSize,
+            modMargin,
+            orientation,
+            cardAlignment,
+            cardDensity
+        });
         updateSettingsButtonVisibility();
 
         // #mod-container has no CSS height of its own - it auto-sizes to its normal-flow
-        // content, which is just drawingLayer (shorter than windowSize.height). The
+        // content, which is just drawingLayer (shorter than availableSize.height). The
         // scrollbar, positioned near the true bottom of the mod, would then render outside
         // mod-container's own box, so hovering it would count as a mouseleave on the
-        // container it's meant to be part of. Size it explicitly to the full viewport.
-        modContainer.style("width", `${windowSize.width}px`).style("height", `${windowSize.height}px`);
+        // container it's meant to be part of. Size it explicitly to the full available area -
+        // availableSize, not the raw windowSize, since #mod-container's CSS margin (main.css)
+        // already claims modMargin on each side; sizing it to the full windowSize on top of
+        // that margin would push it past body's own (unmargined) edges and get sliced off by
+        // body's overflow:hidden - the same failure mode the body-margin fix earlier caught.
+        modContainer.style("width", `${availableSize.width}px`).style("height", `${availableSize.height}px`);
 
         // Drawing Layer - fixed to the viewport. scrollContent is the full (possibly larger)
         // content that gets panned along the timeline axis via a CSS transform.
@@ -604,10 +639,8 @@ window.Spotfire.initialize(async (mod) => {
 
         // Scrollbar - a bottom strip in horizontal mode, a right strip in vertical mode
         timelineScrollBar.update({
-            width: isHorizontal ? mainSize : scrollBarHeight,
-            height: isHorizontal ? scrollBarHeight : mainSize,
-            left: isHorizontal ? 0 : crossSize - scrollBarHeight,
-            top: isHorizontal ? crossSize - scrollBarHeight : 0,
+            length: mainSize,
+            crossSize,
             orientation,
             // Total content extent in the same timeSegmentSize-normalized units as scrollValue
             // (drawingAreaAlongSize / timeSegmentSize) - used only for the handle's proportional
@@ -617,9 +650,13 @@ window.Spotfire.initialize(async (mod) => {
             value: scrollValue,
             maxValue: maxScrollValue,
             extent: visibleTimeSegments,
-            // Same reasoning as the settings button above - interactive chrome uses the
-            // primary foreground color, not the muted scale-line color.
-            color: uiChromeColor,
+            // Unlike the settings button, the scrollbar aims for Spotfire's own native,
+            // theme-independent muted look rather than "interactive toolbar chrome" -
+            // see scrollBarColor's declaration for why. Spotfire's native toolbars/scrollbar
+            // are opaque (with their own thin light-gray border, set directly in main.css),
+            // not see-through - it just reads as subtle because the border/thumb tones are
+            // both so light, not because anything is transparent.
+            color: scrollBarColor,
             background: context.styling.general.backgroundColor,
             scrollDistance: timeSegmentSize,
             valueChanged: onScrollValueChanged
@@ -673,10 +710,36 @@ window.Spotfire.initialize(async (mod) => {
                 .style(crossSizeProp, (d) => `${calcConnectorCrossExtent(d)}px`);
 
             // Cards
+            //
+            // Filtered further than visibleCards (which only bounds the along axis): a
+            // dense cluster can pack far more events into a time window than lanes fit in
+            // the cross axis, and those excess events are all still inside the along-axis
+            // window - without this, a cluster like the "Cluster stress test" datasets
+            // would join thousands of full cards (flexbox layout, text, hover listeners)
+            // into the DOM only for all but a handful to render nothing, clipped by
+            // #drawingLayer's overflow:hidden. card.offScreen (from LayoutResult) is the
+            // layout algorithm's own record of which events it gave up finding a real lane
+            // for, so this filter doesn't need to re-derive unreachability from cardSpacing
+            // and pixel geometry itself - it's a performance pre-filter, not the source of
+            // correctness, which is still CSS overflow:hidden.
+            // Connectors stay on the unfiltered visibleCards - they're cheap (no text, no
+            // listeners) and, per calcConnectorCrossPos, a connector for an off-screen card
+            // always shows a real sliver reaching in from the timeline regardless of lane
+            // depth, which is the point: it's the signal that something exists there even
+            // once its card is out of reach.
+            //
+            // Sorted by lane (verticalPosition) so higher lanes - which sit further from
+            // the timeline, per calculateCardCrossPos - join the DOM later and so paint on
+            // top of the lower lanes they overlap in dense mode: a consistent stacking order
+            // (further-out cards always on top) rather than whatever order the data happens
+            // to produce.
+            let visibleCardsInCrossAxis = visibleCards
+                .filter((c: Card) => !c.offScreen)
+                .sort((a, b) => a.verticalPosition - b.verticalPosition);
 
             cardContainer
                 .selectAll<HTMLDivElement, Card>(".card")
-                .data(visibleCards, (d: Card) => d.row.elementId(true))
+                .data(visibleCardsInCrossAxis, (d: Card) => d.row.elementId(true))
                 .join("div")
                 .attr("class", "card")
                 .attr("draggable", "false")
@@ -732,8 +795,14 @@ window.Spotfire.initialize(async (mod) => {
                 .data(visibleMarkers, (d) => d.data.formattedPath())
                 .join("div")
                 .attr("class", "timeMarker")
-                .classed(isHorizontal ? "timeMarker-left" : "timeMarker-top", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
-                .classed(isHorizontal ? "timeMarker-top" : "timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => displayLevel(d) == 0)
+                .classed(
+                    isHorizontal ? "timeMarker-left" : "timeMarker-top",
+                    (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0
+                )
+                .classed(
+                    isHorizontal ? "timeMarker-top" : "timeMarker-left",
+                    (d: HierarchyRectangularNode<DataViewHierarchyNode>) => displayLevel(d) == 0
+                )
                 // The cross-axis band is only ~timelineLevelHeight thick - fine for one
                 // horizontal line of text under a wide segment, but far too narrow for
                 // horizontal text under a tall vertical-mode segment. Flip the label to run
@@ -754,6 +823,7 @@ window.Spotfire.initialize(async (mod) => {
 
         function onScrollValueChanged(newValue: number) {
             scrollValue = newValue;
+            captureScrollAnchor(scrollValue);
             applyScrollTransform();
             renderVisibleWindow();
         }
@@ -780,6 +850,7 @@ window.Spotfire.initialize(async (mod) => {
             if (autoScroll && scrollValue < maxScrollValue) {
                 // Advance by roughly one pixel per tick, matching the previous native-scroll speed.
                 scrollValue = Math.min(maxScrollValue, scrollValue + 1 / timeSegmentSize);
+                captureScrollAnchor(scrollValue);
                 timelineScrollBar.setValue(scrollValue);
                 applyScrollTransform();
                 renderVisibleWindow();
@@ -863,6 +934,30 @@ window.Spotfire.initialize(async (mod) => {
 
         function finishDrag(event: MouseEvent) {
             resetMarkingOverlay();
+
+            // Below clickDragTolerancePx, treat this as a click rather than a rectangle-
+            // marking gesture. A real rectangle drag should mark every card whose (invisible)
+            // bounding box the rectangle touches, even ones fully hidden under another card in
+            // dense mode - that's the point of dragging a rectangle. A click landing on a
+            // stack of overlapping cards should only mark the one actually visible on top,
+            // matching what the user sees and clicked on, rather than every card stacked
+            // underneath it too.
+            if (
+                Math.abs(selection.x2 - selection.x1) <= clickDragTolerancePx &&
+                Math.abs(selection.y2 - selection.y1) <= clickDragTolerancePx
+            ) {
+                let topCardNode = (event.target as HTMLElement)?.closest<HTMLElement>(".card");
+                if (topCardNode) {
+                    (select<HTMLElement, Card>(topCardNode).datum() as Card).row.mark(
+                        event.ctrlKey || event.metaKey ? "ToggleOrAdd" : "Replace"
+                    );
+                    event.stopPropagation();
+                } else if (!(event.ctrlKey || event.metaKey)) {
+                    dataView.clearMarking();
+                }
+                detachDragHandlers();
+                return;
+            }
 
             // Cards are positioned in scrollContent's content-space; shift by the current
             // scroll offset (which only ever applies to the along-timeline axis) to compare
@@ -980,34 +1075,4 @@ function intersect(first: Rect, second: Rect) {
         return false;
     }
     return true;
-}
-
-/**
- * Relative luminance of a #RRGGBB (or #RGB) color, per the WCAG 2.0 definition.
- */
-function getLuminance(hexCode: string): number {
-    let hex = hexCode.replace("#", "");
-    if (hex.length == 3) {
-        hex = hex
-            .split("")
-            .map((c) => c + c)
-            .join("");
-    }
-
-    let channels = [0, 2, 4].map((offset) => {
-        let channel = parseInt(hex.substring(offset, offset + 2), 16) / 255;
-        return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
-    });
-
-    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-}
-
-function contrastColor(hexCode: string): string {
-    let L = getLuminance(hexCode);
-
-    if ((L + 0.05) / (0.0 + 0.05) > (1.0 + 0.05) / (L + 0.05)) {
-        return "#000000";
-    } else {
-        return "#ffffff";
-    }
 }

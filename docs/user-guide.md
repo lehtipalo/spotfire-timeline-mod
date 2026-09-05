@@ -50,6 +50,15 @@ Hover over the visualization to reveal a settings button in the upper-right corn
 
 The chosen orientation and alignment are saved with the analysis.
 
+### Card Density
+
+The same settings popout also lets you choose how tightly cards are packed:
+
+- **Dense** — cards can overlap down to about one line of text, fitting more of them on screen at once.
+- **Spacious** — cards are always kept fully separated, at the cost of leaving some overlapping cards off-screen.
+
+The chosen density is saved with the analysis.
+
 ### Time
 
 The time segments are determined by the hierarchy on the Time axis. Drag the hierarchy slider (see [Adjusting the hierarchy](#adjusting-the-hierarchy)) to drill from years all the way down to individual days, or back out again.
