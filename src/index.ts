@@ -11,9 +11,16 @@ import { settingsButtonControl } from "./settingsButtonControl";
 // property already exists but holds something other than "spacious") should agree with it.
 const defaultCardDensity: "dense" | "spacious" = "dense";
 
+// Keep in sync with the "cardSize" property's defaultValue in mod-manifest.json - same
+// reasoning as defaultCardDensity above. "medium" is also pinned to today's fixed card
+// size (see cardSizeMultiplier below) so existing reports don't change appearance on
+// upgrade.
+const defaultCardSize: "small" | "medium" | "large" = "medium";
+
 export type Orientation = "horizontal" | "vertical";
 export type CardAlignment = "start" | "middle" | "end";
 export type CardDensity = "dense" | "spacious";
+export type CardSize = "small" | "medium" | "large";
 
 interface Card {
     timePosition: number;
@@ -220,7 +227,8 @@ window.Spotfire.initialize(async (mod) => {
         mod.windowSize(),
         mod.property<string>("orientation"),
         mod.property<string>("cardAlignment"),
-        mod.property<string>("cardDensity")
+        mod.property<string>("cardDensity"),
+        mod.property<string>("cardSize")
     );
 
     reader.subscribe(render);
@@ -262,7 +270,8 @@ window.Spotfire.initialize(async (mod) => {
         windowSize: Spotfire.Size,
         orientationProperty: ModProperty<string>,
         cardAlignmentProperty: ModProperty<string>,
-        cardDensityProperty: ModProperty<string>
+        cardDensityProperty: ModProperty<string>,
+        cardSizeProperty: ModProperty<string>
     ) {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
@@ -283,6 +292,9 @@ window.Spotfire.initialize(async (mod) => {
             cardAlignmentValue === "start" || cardAlignmentValue === "end" ? cardAlignmentValue : "middle";
         const cardDensityValue = cardDensityProperty.value<string>();
         const cardDensity: "dense" | "spacious" = cardDensityValue === "spacious" ? "spacious" : defaultCardDensity;
+        const cardSizeValue = cardSizeProperty.value<string>();
+        const cardSize: CardSize =
+            cardSizeValue === "small" || cardSizeValue === "large" ? cardSizeValue : defaultCardSize;
         // #mod-container is given a matching CSS margin (see main.css) so its content sits
         // a few pixels clear of Spotfire's own axis-selector chrome just outside our
         // rendering area, instead of butting flush against it. windowSize itself is always
@@ -438,16 +450,29 @@ window.Spotfire.initialize(async (mod) => {
         // others needing to move in lockstep. defaultCardBaseSize is just a shared building
         // block behind today's fontSize-derived defaults, not a dependency between them.
         const defaultCardBaseSize = 3.2 * (fontSize * 4);
-        // Card size is pinned to a fixed value rather than to the live timeSegmentSize
-        // computed below, which can grow arbitrarily large: a short timeline with only a
-        // handful of segments would otherwise stretch freeTimeSegmentSize - and with it the
-        // cards - well past a readable size. Segments themselves are still free to grow past
-        // the card's own size for breathing room; only the card box stays fixed.
-        const cardWidth = defaultCardBaseSize;
-        const cardHeight = (defaultCardBaseSize + horizontalSpaceBetweenCards) / 2 - verticalSpaceBetweenCards;
+        // The "cardSize" mod property scales the whole card box uniformly (both axes by the
+        // same factor) so the width:height ratio stays exactly what it is today regardless of
+        // size - it's applied after the width/height formula below rather than folded into
+        // defaultCardBaseSize itself, since horizontalSpaceBetweenCards/verticalSpaceBetweenCards
+        // are fixed pixel spacing, not part of the card's own footprint; baking the multiplier in
+        // earlier would let those constants skew the ratio at the small/large ends. 1 (medium)
+        // reproduces today's fixed size exactly.
+        const cardSizeMultiplier = cardSize === "small" ? 0.75 : cardSize === "large" ? 1.35 : 1;
+        // Card size is pinned to a fixed value (still relative to fontSize via
+        // defaultCardBaseSize, just scaled by cardSizeMultiplier) rather than to the live
+        // timeSegmentSize computed below, which can grow arbitrarily large: a short timeline
+        // with only a handful of segments would otherwise stretch freeTimeSegmentSize - and
+        // with it the cards - well past a readable size. Segments themselves are still free to
+        // grow past the card's own size for breathing room; only the card box stays fixed.
+        const cardWidth = defaultCardBaseSize * cardSizeMultiplier;
+        const cardHeight =
+            ((defaultCardBaseSize + horizontalSpaceBetweenCards) / 2 - verticalSpaceBetweenCards) *
+            cardSizeMultiplier;
         // The floor timeSegmentSize is never allowed to shrink past - see freeTimeSegmentSize
-        // below.
-        const minimumTimeSegmentWidth = (defaultCardBaseSize + horizontalSpaceBetweenCards) / 2;
+        // below. Derived from the already-scaled cardWidth (rather than defaultCardBaseSize
+        // directly) so larger cards get a proportionally wider floor and smaller cards a
+        // proportionally narrower one.
+        const minimumTimeSegmentWidth = (cardWidth + horizontalSpaceBetweenCards) / 2;
 
         // The card's fixed rendered box (cardWidth x cardHeight) never rotates - text must
         // stay upright in both modes - but which of its two dimensions plays the "along the
@@ -604,7 +629,8 @@ window.Spotfire.initialize(async (mod) => {
             modMargin,
             orientation,
             cardAlignment,
-            cardDensity
+            cardDensity,
+            cardSize
         });
         updateSettingsButtonVisibility();
 

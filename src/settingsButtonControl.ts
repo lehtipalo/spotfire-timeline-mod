@@ -1,6 +1,6 @@
 import { Selection, BaseType } from "d3-selection";
 import type { Mod } from "spotfire-api";
-import type { Orientation, CardAlignment, CardDensity } from "./index";
+import type { Orientation, CardAlignment, CardDensity, CardSize } from "./index";
 
 // stroke="currentColor" picks up #settingsButton's own `color` style via inheritance.
 const settingsIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -52,9 +52,18 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
         orientation: Orientation;
         cardAlignment: CardAlignment;
         cardDensity: CardDensity;
+        cardSize: CardSize;
     }) {
-        const { uiChromeColor, backgroundColor, windowSize, modMargin, orientation, cardAlignment, cardDensity } =
-            options;
+        const {
+            uiChromeColor,
+            backgroundColor,
+            windowSize,
+            modMargin,
+            orientation,
+            cardAlignment,
+            cardDensity,
+            cardSize
+        } = options;
 
         let settingsButton = modContainer
             .selectAll("#settingsButton")
@@ -89,6 +98,8 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
                                 mod.property<string>("cardAlignment").set(newCardAlignment);
                             } else if (event.name === "cardDensity") {
                                 mod.property<string>("cardDensity").set(event.value as string);
+                            } else if (event.name === "cardSize") {
+                                mod.property<string>("cardSize").set(event.value as string);
                             }
                         }
                     },
@@ -153,6 +164,29 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
                                     text: "Spacious",
                                     checked: cardDensity === "spacious",
                                     value: "spacious"
+                                })
+                            ]
+                        }),
+                        mod.controls.popout.section({
+                            heading: "Card Size",
+                            children: [
+                                mod.controls.popout.components.radioButton({
+                                    name: "cardSize",
+                                    text: "Small",
+                                    checked: cardSize === "small",
+                                    value: "small"
+                                }),
+                                mod.controls.popout.components.radioButton({
+                                    name: "cardSize",
+                                    text: "Medium",
+                                    checked: cardSize === "medium",
+                                    value: "medium"
+                                }),
+                                mod.controls.popout.components.radioButton({
+                                    name: "cardSize",
+                                    text: "Large",
+                                    checked: cardSize === "large",
+                                    value: "large"
                                 })
                             ]
                         })

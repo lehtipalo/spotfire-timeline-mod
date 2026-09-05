@@ -30,7 +30,8 @@
     "properties": [
         { "name": "orientation", "type": "string", "defaultValue": "horizontal" },
         { "name": "cardAlignment", "type": "string", "defaultValue": "middle" },
-        { "name": "cardDensity", "type": "string", "defaultValue": "dense" }
+        { "name": "cardDensity", "type": "string", "defaultValue": "dense" },
+        { "name": "cardSize", "type": "string", "defaultValue": "medium" }
     ],
     "files": ["index.html", "main.css", "bundle.js"]
 }
