@@ -30,12 +30,15 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
         minVisibleCrossExtent,
         outerEdgeMargin
     } = context;
-    const naturalPitch = crossCardExtent + 4 + crossSpaceBetweenCards;
-    // A floor above the natural pitch would squeeze lanes that already fit comfortably -
-    // never useful, so it's clamped down to natural rather than treated as a caller error.
-    const minPitch = Math.min(naturalPitch, Math.max(1, minVisibleCrossExtent));
+    // A single card's cross-axis size plus its configured gap - both the pitch between
+    // lanes when nothing is squeezed, and the fixed budget the outermost/only card always
+    // needs regardless of squeeze (see its two uses below).
+    const cardFootprint = crossCardExtent + crossSpaceBetweenCards;
+    // A floor above cardFootprint would squeeze lanes that already fit comfortably - never
+    // useful, so it's clamped down to that rather than treated as a caller error.
+    const minPitch = Math.min(cardFootprint, Math.max(1, minVisibleCrossExtent));
     // N lanes at a given pitch occupy (N-1)*pitch of *steps* plus one full card at the far
-    // end - not N*pitch. Below naturalPitch, cards overlap, so `pitch` is only the stagger
+    // end - not N*pitch. Below cardFootprint, cards overlap, so `pitch` is only the stagger
     // between successive near edges; the outermost card still needs its whole footprint
     // (crossCardExtent, plus the gap this side keeps from the timeline/previous card) past
     // that last step, since nothing overlaps it from beyond. Treating the budget as N*pitch
@@ -43,7 +46,6 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
     // many lanes fit and understates the pitch each needs once pitch is squeezed well below
     // crossCardExtent - the fixed part below corrects for that in both places it matters:
     // maxVisibleLanes and pitchForPeak.
-    const fixedFootprint = crossCardExtent + crossSpaceBetweenCards;
 
     // A lane beyond this many is guaranteed to fall outside the drawing area, which clips
     // with overflow:hidden and has no cross-axis scrollbar - such a card is unreachable no
@@ -54,7 +56,7 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
     // constant instead of by how many events have piled up so far. Sized against minPitch
     // (the tightest pitch any event could ever use), so the cap is exactly as permissive as
     // the squeeze allows - lane index maxVisibleLanes-1 (the last real lane) is exactly the
-    // largest index still satisfying the same (N-1)*pitch + fixedFootprint <= availablePerSide
+    // largest index still satisfying the same (N-1)*pitch + cardFootprint <= availablePerSide
     // budget pitchForPeak enforces below. Unlike the old N*pitch model, this +1 is exact,
     // not padding: any larger and the last real lane's own pitchForPeak clamp to minPitch
     // would push it past availablePerSide - i.e. the same clipping this file exists to
@@ -62,7 +64,7 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
     // outerEdgeMargin comes out of every side's budget up front, before any lane math -
     // fitting exactly `availablePerSide` worth of lanes still leaves outerEdgeMargin of
     // untouched space past the outermost one, on every side, for the same reason
-    // fixedFootprint's derivation holds regardless of how tight the squeeze gets.
+    // cardFootprint's derivation holds regardless of how tight the squeeze gets.
     //
     // The single-group ("start"/"end") case additionally subtracts crossSpaceBetweenCards:
     // unlike "middle" (where the timeline sits exactly centered, so secondarySize/2 already
@@ -73,12 +75,8 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
     const availablePerSide =
         (numAlignmentGroups === 2
             ? (secondarySize - timelineCrossExtent) / 2
-            : secondarySize - timelineCrossExtent - crossSpaceBetweenCards) -
-        outerEdgeMargin;
-    const maxVisibleLanes = Math.max(
-        1,
-        Math.floor(Math.max(0, availablePerSide - fixedFootprint) / minPitch) + 1
-    );
+            : secondarySize - timelineCrossExtent - crossSpaceBetweenCards) - outerEdgeMargin;
+    const maxVisibleLanes = Math.max(1, Math.floor(Math.max(0, availablePerSide - cardFootprint) / minPitch) + 1);
     // A local peak search (see localPeak below) can never usefully exceed this - every
     // lane beyond it is the shared overflow lane, already the worst case.
     const maxPossiblePeak = maxVisibleLanes + 1;
@@ -141,14 +139,14 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
     }
 
     // The pitch that fits `peakLanes` into availablePerSide, no tighter than minPitch and
-    // never tighter than naturalPitch when that already fits. `peakLanes` cards need only
-    // peakLanes-1 steps of `pitch` (see fixedFootprint above) plus the last card's own
+    // never tighter than cardFootprint when that already fits. `peakLanes` cards need only
+    // peakLanes-1 steps of `pitch` (see cardFootprint above) plus the last card's own
     // footprint, not peakLanes full steps.
     function pitchForPeak(peakLanes: number): number {
-        if (peakLanes <= 1) return naturalPitch;
-        const availableForSteps = availablePerSide - fixedFootprint;
-        return naturalPitch * (peakLanes - 1) <= availableForSteps
-            ? naturalPitch
+        if (peakLanes <= 1) return cardFootprint;
+        const availableForSteps = availablePerSide - cardFootprint;
+        return cardFootprint * (peakLanes - 1) <= availableForSteps
+            ? cardFootprint
             : Math.max(minPitch, availableForSteps / (peakLanes - 1));
     }
 

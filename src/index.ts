@@ -414,7 +414,7 @@ window.Spotfire.initialize(async (mod) => {
                 path.unshift({
                     key: node.key ?? node.formattedValue(),
                     siblingIndex,
-                    siblingCount: siblings.length,
+                    siblingCount: siblings.length
                 });
                 node = node.parent;
             }
@@ -427,6 +427,11 @@ window.Spotfire.initialize(async (mod) => {
          * Calculate Layout
          */
         const crossSpaceBetweenCards = isHorizontal ? verticalSpaceBetweenCards : horizontalSpaceBetweenCards;
+        // The along-axis counterpart to crossSpaceBetweenCards: without it, timeSegmentsPerCard
+        // below would only guarantee cards don't overlap along the timeline, not that they keep
+        // any breathing room - unlike the cross axis, which always adds this gap on top of the
+        // card's own footprint.
+        const alongSpaceBetweenCards = isHorizontal ? horizontalSpaceBetweenCards : verticalSpaceBetweenCards;
 
         // cardWidth, cardHeight and minimumTimeSegmentWidth are independent of each other -
         // each can change on its own (e.g. once these become mod properties) without the
@@ -461,16 +466,18 @@ window.Spotfire.initialize(async (mod) => {
             timeLeaves.length > 0 ? (mainSize - 2 * edgeMargin) / timeLeaves.length : minimumTimeSegmentWidth;
         let timeSegmentSize = Math.max(minimumTimeSegmentWidth, freeTimeSegmentSize);
 
-        // How many time segments a card's along-axis footprint actually spans, in the same
-        // units balancedLaneLayout's timePosition uses (1.0 = one leaf) - derived from the
-        // card's real pixel size and the segment size actually in effect this render, rather
-        // than assumed to be a fixed round number. Now that cardWidth/cardHeight no longer
-        // have to track timeSegmentSize, a card can genuinely span more than its immediate
-        // neighbor's worth of segments (a wide card in horizontal mode, or - once cardHeight
-        // varies independently - a tall one in vertical mode); this ratio is what lets the
-        // lane-assignment loop in balancedLaneLayout.ts pick that up without any change to
-        // that algorithm itself.
-        const timeSegmentsPerCard = alongCardExtent / timeSegmentSize;
+        // The minimum along-axis distance balancedLaneLayout enforces between two cards
+        // sharing a lane, in the same units its timePosition uses (1.0 = one leaf) - the
+        // card's own footprint (derived from its real pixel size and the segment size
+        // actually in effect this render, rather than assumed to be a fixed round number)
+        // plus alongSpaceBetweenCards, so cards on the same lane keep the same breathing
+        // room the cross axis already guarantees instead of merely touching edge-to-edge.
+        // Now that cardWidth/cardHeight no longer have to track timeSegmentSize, a card can
+        // genuinely span more than its immediate neighbor's worth of segments (a wide card
+        // in horizontal mode, or - once cardHeight varies independently - a tall one in
+        // vertical mode); this ratio is what lets the lane-assignment loop in
+        // balancedLaneLayout.ts pick that up without any change to that algorithm itself.
+        const timeSegmentsPerCard = (alongCardExtent + alongSpaceBetweenCards) / timeSegmentSize;
         // No longer trimmed for the scrollbar - like Spotfire's own native visualizations,
         // the scrollbar (see #scrollBar's z-index in main.css) floats on top of the drawing
         // area on hover rather than claiming permanent dead space beside it. It's already
