@@ -702,21 +702,12 @@ window.Spotfire.initialize(async (mod) => {
             //
             // Sorted by lane (verticalPosition) so higher lanes - which sit further from
             // the timeline, per calculateCardCrossPos - join the DOM later and so paint on
-            // top of the lower lanes they overlap in dense mode, covering each covered
-            // card's far-from-timeline edge and consistently leaving its near-timeline edge
-            // exposed. crossTextAlign (below) aligns each card's text to that same edge so
-            // the exposed sliver actually shows the start of its text instead of the blank
-            // padding around centered text.
+            // top of the lower lanes they overlap in dense mode: a consistent stacking order
+            // (further-out cards always on top) rather than whatever order the data happens
+            // to produce.
             let visibleCardsInCrossAxis = visibleCards
                 .filter((c: Card) => !c.offScreen)
                 .sort((a, b) => a.verticalPosition - b.verticalPosition);
-
-            // Aligns a card's text toward its own near-timeline edge (see the join comment
-            // above) instead of .card's default centering, so a dense-mode overlap sliver
-            // reveals the start of the text rather than blank space around a centered block.
-            function crossTextAlign(d: Card): "flex-start" | "flex-end" {
-                return laneInfo(d.verticalPosition).group === 0 ? "flex-end" : "flex-start";
-            }
 
             cardContainer
                 .selectAll<HTMLDivElement, Card>(".card")
@@ -741,8 +732,6 @@ window.Spotfire.initialize(async (mod) => {
                 .style(crossProp, (d: Card) => `${calculateCardCrossPos(d)}px`)
                 .style("height", `${cardHeight}px`)
                 .style("width", `${cardWidth}px`)
-                .style("align-items", (d: Card) => (isHorizontal ? crossTextAlign(d) : "center"))
-                .style("justify-content", (d: Card) => (isHorizontal ? "center" : crossTextAlign(d)))
                 .style("background-color", (d) => `${d.color.hexCode}`)
                 .style("color", (d: Card) => `${contrastColor(d.color.hexCode)}`);
 
