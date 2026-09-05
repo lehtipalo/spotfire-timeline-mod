@@ -1,6 +1,11 @@
 import { Selection, BaseType } from "d3-selection";
 import type { Orientation } from "./index";
 
+// Cross-axis thickness of the scrollbar track (its height in horizontal mode, its width in
+// vertical mode). Purely internal - callers hand update() the container's own bounds
+// (length/crossSize) and never need this value themselves.
+const scrollBarHeight = 14;
+
 /**
  * A scrollbar (start/end buttons, draggable handle, wheel support) styled to match the
  * Spotfire canvas theme, supporting both horizontal and vertical orientation. Values are
@@ -112,10 +117,11 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
     }
 
     function update(options: {
-        width: number;
-        left: number;
-        top: number;
-        height: number;
+        // The container's own along-axis and cross-axis extents - not the scrollbar's own
+        // width/height/left/top, which it derives from these plus its own fixed thickness
+        // (scrollBarHeight) below. Callers never need to know that thickness themselves.
+        length: number;
+        crossSize: number;
         orientation: Orientation;
         totalItems: number;
         value: number;
@@ -126,11 +132,10 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
         scrollDistance: number;
         valueChanged: (value: number) => void;
     }) {
+        let length: number, containerCrossSize: number;
         ({
-            width,
-            left,
-            top,
-            height,
+            length,
+            crossSize: containerCrossSize,
             orientation,
             totalItems,
             value,
@@ -142,8 +147,13 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
             valueChanged
         } = options);
 
-        trackLength = orientation === "horizontal" ? width : height;
-        thickness = orientation === "horizontal" ? height : width;
+        let isHorizontal = orientation === "horizontal";
+        thickness = scrollBarHeight;
+        trackLength = length;
+        width = isHorizontal ? length : thickness;
+        height = isHorizontal ? thickness : length;
+        left = isHorizontal ? 0 : containerCrossSize - thickness;
+        top = isHorizontal ? containerCrossSize - thickness : 0;
 
         buttonSize = Math.max(8, thickness - 4);
         trackStart = buttonSize + 4;
@@ -199,7 +209,7 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
 
         handlePos = valueToHandlePos(value);
 
-        let handleThickness = Math.max(6, thickness - 6);
+        let handleThickness = Math.max(6, thickness - 8);
         scrollBarHandle
             .style("background-color", color)
             .style("width", `${isHorizontal ? handleExtent : handleThickness}px`)

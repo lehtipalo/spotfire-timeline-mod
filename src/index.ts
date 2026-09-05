@@ -36,16 +36,13 @@ const timeAxisName = "Time",
     eventAxisName = "Event",
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
-    // Slimmer than the old 16px - Spotfire's own native scrollbars read noticeably thinner
-    // than that.
-    scrollBarHeight = 10,
     // Flat, theme-independent gray rather than uiChromeColor (the settings button's own
     // "interactive toolbar chrome" tone, derived from the visualization's font color) -
     // Spotfire's native scrollbar thumb doesn't tint itself to the viz's own accent/font
     // color, it's a fixed muted gray that works the same regardless of theme. Semi-
     // transparent so it blends into whatever's underneath rather than reading as a flat
     // opaque shape.
-    scrollBarColor = "rgba(120, 120, 120, 0.5)",
+    scrollBarColor = "rgba(150, 150, 150, 0.5)",
     // .card's box-shadow (main.css) paints outside its layout box - up to offset+blur past
     // the far edge (2px + 5px = 7px for the outer shadow layer). Reserved as
     // LayoutContext.outerEdgeMargin so the outermost lane on each side never sits flush
@@ -77,7 +74,7 @@ const timelineScrollBar = scrollBarControl(modContainer);
 
 let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
-// Remembers which listeners belong to the current in-progress drag,  so if a re-render happens mid-drag, 
+// Remembers which listeners belong to the current in-progress drag,  so if a re-render happens mid-drag,
 // the old (now-stale) listeners can be found and removed before they run against disposed data
 let activeMouseMoveHandler: ((event: MouseEvent) => void) | null = null;
 let activeMouseUpHandler: ((event: MouseEvent) => void) | null = null;
@@ -452,8 +449,8 @@ window.Spotfire.initialize(async (mod) => {
             cardAlignment === "start"
                 ? crossSpaceBetweenCards
                 : cardAlignment === "end"
-                ? drawingAreaCrossSize - crossSpaceBetweenCards - timelineCrossExtent
-                : drawingAreaCrossSize / 2 - timelineCrossExtent / 2;
+                  ? drawingAreaCrossSize - crossSpaceBetweenCards - timelineCrossExtent
+                  : drawingAreaCrossSize / 2 - timelineCrossExtent / 2;
         const drawingAreaAlongSize = timeLeaves.length * timeSegmentSize + edgeMargin * 2;
         const timelineWidth = timeLeaves.length * timeSegmentSize;
         const timelineHeight = (timeHierarchyDepth + 1) * timelineLevelHeight;
@@ -566,9 +563,11 @@ window.Spotfire.initialize(async (mod) => {
         // (~48px) with a small margin.
         const settingsButtonTop = 56;
         // Same right inset regardless of orientation - keeps the button aligned under the FAB
-        // (which uses this same inset) instead of shifting sideways when orientation changes,
-        // and vertical mode still needs it clear of the scrollbar running down that edge.
-        const settingsButtonRight = scrollBarHeight + 8;
+        // (which uses this same inset) instead of shifting sideways when orientation changes.
+        // Also happens to clear the scrollbar running down that same edge in vertical mode
+        // (its thickness is well under this); revisit this value if the scrollbar is ever
+        // made noticeably thicker.
+        const settingsButtonRight = 22;
 
         let settingsButton = modContainer
             .selectAll("#settingsButton")
@@ -729,10 +728,8 @@ window.Spotfire.initialize(async (mod) => {
 
         // Scrollbar - a bottom strip in horizontal mode, a right strip in vertical mode
         timelineScrollBar.update({
-            width: isHorizontal ? mainSize : scrollBarHeight,
-            height: isHorizontal ? scrollBarHeight : mainSize,
-            left: isHorizontal ? 0 : crossSize - scrollBarHeight,
-            top: isHorizontal ? crossSize - scrollBarHeight : 0,
+            length: mainSize,
+            crossSize,
             orientation,
             // Total content extent in the same timeSegmentSize-normalized units as scrollValue
             // (drawingAreaAlongSize / timeSegmentSize) - used only for the handle's proportional
@@ -898,8 +895,14 @@ window.Spotfire.initialize(async (mod) => {
                 .data(visibleMarkers, (d) => d.data.formattedPath())
                 .join("div")
                 .attr("class", "timeMarker")
-                .classed(isHorizontal ? "timeMarker-left" : "timeMarker-top", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0)
-                .classed(isHorizontal ? "timeMarker-top" : "timeMarker-left", (d: HierarchyRectangularNode<DataViewHierarchyNode>) => displayLevel(d) == 0)
+                .classed(
+                    isHorizontal ? "timeMarker-left" : "timeMarker-top",
+                    (d: HierarchyRectangularNode<DataViewHierarchyNode>) => d.x0 == 0
+                )
+                .classed(
+                    isHorizontal ? "timeMarker-top" : "timeMarker-left",
+                    (d: HierarchyRectangularNode<DataViewHierarchyNode>) => displayLevel(d) == 0
+                )
                 // The cross-axis band is only ~timelineLevelHeight thick - fine for one
                 // horizontal line of text under a wide segment, but far too narrow for
                 // horizontal text under a tall vertical-mode segment. Flip the label to run

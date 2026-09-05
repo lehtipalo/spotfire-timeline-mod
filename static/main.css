@@ -68,8 +68,10 @@ body {
     /* Thin and light, like Spotfire's native toolbar border (e.g. .timeMarker's own
        lightgray border below) - not JS/theme-driven, since it's meant to read as fixed,
        muted chrome rather than an accent that shifts with the visualization's own colors. */
-    border: solid 1px lightgray;
-    border-radius: 4px;
+    border: solid 1px gainsboro;
+    /* Square, unlike the handle's pill shape - matches the boxier, square-cornered track on
+       Spotfire's own native (classic "always show") scrollbars. */
+    border-radius: 0;
     user-select: none;
     display: flex;
     align-items: center;
