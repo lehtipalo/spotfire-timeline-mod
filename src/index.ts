@@ -385,36 +385,30 @@ window.Spotfire.initialize(async (mod) => {
          */
         const crossSpaceBetweenCards = isHorizontal ? verticalSpaceBetweenCards : horizontalSpaceBetweenCards;
 
-        // How many time segments a card's along-axis footprint spans, by construction (see
-        // cardWidth/cardHeight below): 1 in vertical mode, so a lane conflict only ever
-        // happens between cards in the exact same time segment, not merely nearby ones; 2 in
-        // horizontal mode. balancedLaneLayout.ts reuses this as its collision footprint width
-        // (timeSegmentsPerCard below) - see the lane-assignment loop there.
-        const alongSegmentsPerCard = isHorizontal ? 2 : 1;
+        // cardWidth, cardHeight and minimumTimeSegmentWidth are independent of each other -
+        // each can change on its own (e.g. once these become mod properties) without the
+        // others needing to move in lockstep. defaultCardBaseSize is just a shared building
+        // block behind today's fontSize-derived defaults, not a dependency between them.
+        const defaultCardBaseSize = 3.2 * (fontSize * 4);
+        // Card size is pinned to a fixed value rather than to the live timeSegmentSize
+        // computed below, which can grow arbitrarily large: a short timeline with only a
+        // handful of segments would otherwise stretch freeTimeSegmentSize - and with it the
+        // cards - well past a readable size. Segments themselves are still free to grow past
+        // the card's own size for breathing room; only the card box stays fixed.
+        const cardWidth = defaultCardBaseSize;
+        const cardHeight = (defaultCardBaseSize + horizontalSpaceBetweenCards) / 2 - verticalSpaceBetweenCards;
+        // The floor timeSegmentSize is never allowed to shrink past - see freeTimeSegmentSize
+        // below.
+        const minimumTimeSegmentWidth = (defaultCardBaseSize + horizontalSpaceBetweenCards) / 2;
 
-        // cardWidthAtFloor anchors minimumTimeSegmentWidth to the same card width this mod
-        // used before card size was tied to segment size, so a fully crowded timeline stays
-        // exactly as readable. Card size is pinned to this floor rather than to the live
-        // timeSegmentSize computed below, which can grow arbitrarily large: a short timeline
-        // with only a handful of segments would otherwise stretch freeTimeSegmentSize - and
-        // with it the cards - well past a readable size. Segments themselves are still free
-        // to grow past the card's own size for breathing room; only the card box stays fixed.
-        const cardWidthAtFloor = 3.2 * (fontSize * 4);
-        const minimumTimeSegmentWidth = (cardWidthAtFloor + horizontalSpaceBetweenCards) / 2;
-
-        const cardHeight = minimumTimeSegmentWidth - verticalSpaceBetweenCards;
-        const cardWidth = 2 * minimumTimeSegmentWidth - horizontalSpaceBetweenCards;
         // The card's fixed rendered box (cardWidth x cardHeight) never rotates - text must
         // stay upright in both modes - but which of its two dimensions plays the "along the
         // timeline" role (spacing/collision) vs the "across/stacking" role swaps by orientation.
         const alongCardExtent = isHorizontal ? cardWidth : cardHeight;
         const crossCardExtent = isHorizontal ? cardHeight : cardWidth;
         // The actual reserved space at each edge of the content for a card centered on the
-        // first/last segment to spill into - exactly half the along-axis card size. Fixed,
-        // like the card size it's derived from, since it exists only to keep that fixed-size
-        // card from spilling past the content edge.
+        // first/last segment to spill into - exactly half the along-axis card size.
         const edgeMargin = alongCardExtent / 2;
-        const timeSegmentsPerCard = alongSegmentsPerCard;
 
         // However much of mainSize, after reserving edgeMargin on both ends, each of the N
         // segments gets. Still floored at minimumTimeSegmentWidth so a crowded timeline never
@@ -423,6 +417,17 @@ window.Spotfire.initialize(async (mod) => {
         const freeTimeSegmentSize =
             timeLeaves.length > 0 ? (mainSize - 2 * edgeMargin) / timeLeaves.length : minimumTimeSegmentWidth;
         let timeSegmentSize = Math.max(minimumTimeSegmentWidth, freeTimeSegmentSize);
+
+        // How many time segments a card's along-axis footprint actually spans, in the same
+        // units balancedLaneLayout's timePosition uses (1.0 = one leaf) - derived from the
+        // card's real pixel size and the segment size actually in effect this render, rather
+        // than assumed to be a fixed round number. Now that cardWidth/cardHeight no longer
+        // have to track timeSegmentSize, a card can genuinely span more than its immediate
+        // neighbor's worth of segments (a wide card in horizontal mode, or - once cardHeight
+        // varies independently - a tall one in vertical mode); this ratio is what lets the
+        // lane-assignment loop in balancedLaneLayout.ts pick that up without any change to
+        // that algorithm itself.
+        const timeSegmentsPerCard = alongCardExtent / timeSegmentSize;
         // No longer trimmed for the scrollbar - like Spotfire's own native visualizations,
         // the scrollbar (see #scrollBar's z-index in main.css) floats on top of the drawing
         // area on hover rather than claiming permanent dead space beside it. It's already
