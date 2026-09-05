@@ -19,7 +19,7 @@
 - Hovering over a card that's partially hidden behind another now brings it temporarily to the front so that it can be more easily read.
 - The scrollbar more closely matches Spotfire native scrollbar look and feel. It's hidden by default and only appears while you hover over the visualization.
 - You can now scroll the timeline with the mouse wheel anywhere over the visualization.
-- Added a Card Density setting (Dense/Spacious): Dense allows cards to overlap more tightly to fit more of them on screen, while Spacious keeps every card fully separated.
+- Added a Card Size setting (Small/Medium/Large) and an Allow cards to overlap setting: checked lets cards overlap down to about one line of text to fit more of them on screen, unchecked keeps every card fully separated.
 - The timeline now remembers where you were scrolled to when the Time axis granularity changes (e.g. drilling from years down to months), instead of jumping to an unrelated position.
 - Added an "Auto-scroll to marked" setting: when a row is marked in another visualization and no marked card is currently visible, the timeline scrolls to reveal it.
 - Fixed an issue where the last card on the timeline could be cut off at the edge when scrolled all the way to the end.

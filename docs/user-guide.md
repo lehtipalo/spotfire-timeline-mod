@@ -50,14 +50,14 @@ Hover over the visualization to reveal a settings button in the upper-right corn
 
 The chosen orientation and alignment are saved with the analysis.
 
-### Card Density
+### Card Size and Overlap
 
-The same settings popout also lets you choose how tightly cards are packed:
+The same settings popout also lets you choose how cards are sized and packed:
 
-- **Dense** — cards can overlap down to about one line of text, fitting more of them on screen at once.
-- **Spacious** — cards are always kept fully separated, at the cost of leaving some overlapping cards off-screen.
+- **Card Size** — **Small**, **Medium**, or **Large**, controlling how big each card renders.
+- **Allow cards to overlap** — when checked, cards can overlap down to about one line of text, fitting more of them on screen at once. When unchecked, cards are always kept fully separated, at the cost of leaving some overlapping cards off-screen.
 
-The chosen density is saved with the analysis.
+The chosen card size and overlap setting are saved with the analysis.
 
 ### Auto-scroll to marked
 
