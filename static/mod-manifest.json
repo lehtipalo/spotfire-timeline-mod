@@ -31,7 +31,8 @@
         { "name": "orientation", "type": "string", "defaultValue": "horizontal" },
         { "name": "cardAlignment", "type": "string", "defaultValue": "middle" },
         { "name": "allowCardOverlap", "type": "boolean", "defaultValue": true },
-        { "name": "cardSize", "type": "string", "defaultValue": "medium" }
+        { "name": "cardSize", "type": "string", "defaultValue": "medium" },
+        { "name": "autoScrollToMarked", "type": "boolean", "defaultValue": false }
     ],
     "files": ["index.html", "main.css", "bundle.js"]
 }
