@@ -57,7 +57,12 @@ const timeAxisName = "Time",
     // axis-selector chrome just outside it, which otherwise sits flush against our content.
     // Must match #mod-container's CSS margin in main.css - see availableSize below for why
     // that pairing matters (an unmatched margin/size would silently clip content again).
-    modMargin = 2;
+    modMargin = 2,
+    // A mousedown-to-mouseup drag no bigger than this, in either direction, is treated as a
+    // click rather than a deliberate rectangle-marking gesture - see finishDrag. Big enough
+    // to absorb incidental mouse jitter between the two events, small enough that no
+    // intentional marking rectangle could be mistaken for one.
+    clickDragTolerancePx = 3;
 
 /**
  * Set up drawing layers
@@ -906,6 +911,30 @@ window.Spotfire.initialize(async (mod) => {
 
         function finishDrag(event: MouseEvent) {
             resetMarkingOverlay();
+
+            // Below clickDragTolerancePx, treat this as a click rather than a rectangle-
+            // marking gesture. A real rectangle drag should mark every card whose (invisible)
+            // bounding box the rectangle touches, even ones fully hidden under another card in
+            // dense mode - that's the point of dragging a rectangle. A click landing on a
+            // stack of overlapping cards should only mark the one actually visible on top,
+            // matching what the user sees and clicked on, rather than every card stacked
+            // underneath it too.
+            if (
+                Math.abs(selection.x2 - selection.x1) <= clickDragTolerancePx &&
+                Math.abs(selection.y2 - selection.y1) <= clickDragTolerancePx
+            ) {
+                let topCardNode = (event.target as HTMLElement)?.closest<HTMLElement>(".card");
+                if (topCardNode) {
+                    (select<HTMLElement, Card>(topCardNode).datum() as Card).row.mark(
+                        event.ctrlKey || event.metaKey ? "ToggleOrAdd" : "Replace"
+                    );
+                    event.stopPropagation();
+                } else if (!(event.ctrlKey || event.metaKey)) {
+                    dataView.clearMarking();
+                }
+                detachDragHandlers();
+                return;
+            }
 
             // Cards are positioned in scrollContent's content-space; shift by the current
             // scroll offset (which only ever applies to the along-timeline axis) to compare
