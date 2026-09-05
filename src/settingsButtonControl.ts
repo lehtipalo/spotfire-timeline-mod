@@ -53,6 +53,7 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
         cardAlignment: CardAlignment;
         allowCardOverlap: boolean;
         cardSize: CardSize;
+        autoScrollToMarked: boolean;
     }) {
         const {
             uiChromeColor,
@@ -62,7 +63,8 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
             orientation,
             cardAlignment,
             allowCardOverlap,
-            cardSize
+            cardSize,
+            autoScrollToMarked
         } = options;
 
         let settingsButton = modContainer
@@ -100,6 +102,8 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
                                 mod.property<boolean>("allowCardOverlap").set(event.value as boolean);
                             } else if (event.name === "cardSize") {
                                 mod.property<string>("cardSize").set(event.value as string);
+                            } else if (event.name === "autoScrollToMarked") {
+                                mod.property<boolean>("autoScrollToMarked").set(event.value as boolean);
                             }
                         }
                     },
@@ -180,6 +184,12 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
                                     name: "allowCardOverlap",
                                     text: "Allow cards to overlap",
                                     checked: allowCardOverlap,
+                                    enabled: true
+                                }),
+                                mod.controls.popout.components.checkbox({
+                                    name: "autoScrollToMarked",
+                                    text: "Auto-scroll to marked",
+                                    checked: autoScrollToMarked,
                                     enabled: true
                                 })
                             ]

@@ -59,6 +59,12 @@ The same settings popout also lets you choose how tightly cards are packed:
 
 The chosen density is saved with the analysis.
 
+### Auto-scroll to marked
+
+The same settings popout has an **Auto-scroll to marked** toggle, off by default. When it's on and none of the currently marked cards are visible on screen, the timeline scrolls to bring one into view.
+
+Marking a card from within the timeline itself never triggers this, since a card you just clicked or drag-selected is already visible by definition — the toggle only kicks in when an event gets marked in another visualization and its card would otherwise be off-screen.
+
 ### Time
 
 The time segments are determined by the hierarchy on the Time axis. Drag the hierarchy slider (see [Adjusting the hierarchy](#adjusting-the-hierarchy)) to drill from years all the way down to individual days, or back out again.
@@ -95,6 +101,8 @@ Click and drag across empty space to draw a selection box and mark every card it
 A marked card is drawn on top of any overlapping unmarked cards.
 
 This marking isn't local to the timeline — it's the same marking used throughout Spotfire, so events marked here are marked everywhere else on the page that shares it, letting you [explore the same events across your other visualizations](https://docs.tibco.com/pub/sfire-analyst/latest/doc/html/en-US/TIB_sfire_client/client/topics/en-US/exploring_data_across_visualizations.html). Right-click a marking to [drill down into a details visualization](https://docs.tibco.com/pub/sfire-analyst/latest/doc/html/en-US/TIB_sfire_client/client/topics/en-US/drilling_down_into_details.html) built from just the marked events, or open the Details-on-Demand panel to [inspect every underlying event](https://docs.tibco.com/pub/sfire-analyst/latest/doc/html/en-US/TIB_sfire_client/client/topics/en-US/displaying_item_details.html) behind a marked card.
+
+Marking an event in another visualization can land somewhere off-screen in a long timeline — turn on [Auto-scroll to marked](#auto-scroll-to-marked) to have the timeline scroll to it automatically.
 
 ### Tooltips
 

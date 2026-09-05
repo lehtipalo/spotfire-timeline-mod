@@ -17,6 +17,10 @@ const defaultAllowCardOverlap = true;
 // upgrade.
 const defaultCardSize: "small" | "medium" | "large" = "medium";
 
+// Keep in sync with the "autoScrollToMarked" property's defaultValue in mod-manifest.json -
+// same reasoning as defaultAllowCardOverlap above.
+const defaultAutoScrollToMarked = false;
+
 export type Orientation = "horizontal" | "vertical";
 export type CardAlignment = "start" | "middle" | "end";
 export type CardSize = "small" | "medium" | "large";
@@ -175,6 +179,10 @@ window.Spotfire.initialize(async (mod) => {
     // below stops there correctly now.
     type ScrollAnchorPathEntry = { key: string; siblingIndex: number; siblingCount: number };
     let scrollAnchor: { path: ScrollAnchorPathEntry[]; fraction: number } | null = null;
+    // Identity (marked rows' elementIds, joined) of the marked set as of the last render,
+    // for autoScrollToMarked below - null only before the very first render, so a fresh
+    // mod never auto-scrolls just because rows happen to already be marked on load.
+    let previousMarkedIdentity: string | null = null;
     // Whether the timeline currently overflows the viewport at all, and whether the mouse
     // is over the visualization - the scrollbar only shows when both are true. Persisted
     // (rather than render-local) since hover can change independently of any render pass.
@@ -227,7 +235,8 @@ window.Spotfire.initialize(async (mod) => {
         mod.property<string>("orientation"),
         mod.property<string>("cardAlignment"),
         mod.property<boolean>("allowCardOverlap"),
-        mod.property<string>("cardSize")
+        mod.property<string>("cardSize"),
+        mod.property<boolean>("autoScrollToMarked")
     );
 
     reader.subscribe(render);
@@ -270,7 +279,8 @@ window.Spotfire.initialize(async (mod) => {
         orientationProperty: ModProperty<string>,
         cardAlignmentProperty: ModProperty<string>,
         allowCardOverlapProperty: ModProperty<boolean>,
-        cardSizeProperty: ModProperty<string>
+        cardSizeProperty: ModProperty<string>,
+        autoScrollToMarkedProperty: ModProperty<boolean>
     ) {
         // Cancel any drag selection still in progress from a previous render - its listeners
         // close over rows/DataView from that render, which may now be disposed.
@@ -293,6 +303,7 @@ window.Spotfire.initialize(async (mod) => {
         const cardSizeValue = cardSizeProperty.value<string>();
         const cardSize: CardSize =
             cardSizeValue === "small" || cardSizeValue === "large" ? cardSizeValue : defaultCardSize;
+        const autoScrollToMarked = autoScrollToMarkedProperty.value<boolean>() ?? defaultAutoScrollToMarked;
         // #mod-container is given a matching CSS margin (see main.css) so its content sits
         // a few pixels clear of Spotfire's own axis-selector chrome just outside our
         // rendering area, instead of butting flush against it. windowSize itself is always
@@ -563,6 +574,15 @@ window.Spotfire.initialize(async (mod) => {
             });
         });
 
+        // autoScrollToMarked bookkeeping: markedIdentity changing from the previous render is
+        // what distinguishes an actual new marking event from an unrelated re-render (e.g. a
+        // filter change elsewhere, a resize) that happens to leave the same rows marked - see
+        // previousMarkedIdentity's declaration for why that distinction matters.
+        const markedCards = cards.filter((c) => c.row.isMarked());
+        const markedIdentity = markedCards.map((c) => c.row.elementId(true)).join("|");
+        const markingChanged = previousMarkedIdentity !== null && markedIdentity !== previousMarkedIdentity;
+        previousMarkedIdentity = markedIdentity;
+
         // Shuffle cards on top of each other to fit across the stacking axis, within
         // drawingAreaCrossSize - currently just crossSize (see its declaration above: the
         // scrollbar floats on top rather than reserving a permanent strip), but named
@@ -628,7 +648,8 @@ window.Spotfire.initialize(async (mod) => {
             orientation,
             cardAlignment,
             allowCardOverlap,
-            cardSize
+            cardSize,
+            autoScrollToMarked
         });
         updateSettingsButtonVisibility();
 
@@ -867,6 +888,42 @@ window.Spotfire.initialize(async (mod) => {
 
         renderVisibleWindow();
 
+        // Auto-scroll to the marked card closest to the current viewport (in either direction)
+        // when marking changed since the last render and none of the currently marked cards are
+        // already visible. A card marked from within this mod (drag-select, click, time-label
+        // click) is by construction already on-screen when it's marked, so this condition alone
+        // - with no separate local/external tracking - already only fires for marking that
+        // happened outside this visualization. Scrolls to the card's time position even if it
+        // couldn't be placed in a visible lane (see Card.offScreen) - the time position is still
+        // correct even when the card box isn't reachable.
+        if (autoScrollToMarked && markingChanged && markedCards.length > 0) {
+            const viewportStartPx = scrollValue * timeSegmentSize;
+            const viewportEndPx = viewportStartPx + mainSize;
+            const anyMarkedVisible = markedCards.some((c) => {
+                const alongPos = calculateCardAlongPos(c);
+                return alongPos + alongCardExtent >= viewportStartPx && alongPos <= viewportEndPx;
+            });
+            if (!anyMarkedVisible) {
+                // 0 while inside [scrollValue, viewportEndValue] (unreached here, since
+                // anyMarkedVisible is false), otherwise how far past whichever edge is nearer.
+                const viewportEndValue = scrollValue + visibleTimeSegments;
+                const distanceFromViewport = (c: Card) =>
+                    c.timePosition < scrollValue
+                        ? scrollValue - c.timePosition
+                        : c.timePosition > viewportEndValue
+                          ? c.timePosition - viewportEndValue
+                          : 0;
+                const closestMarkedCard = markedCards.reduce((closest, c) =>
+                    distanceFromViewport(c) < distanceFromViewport(closest) ? c : closest
+                );
+                const targetScrollValue = Math.max(
+                    0,
+                    Math.min(closestMarkedCard.timePosition - visibleTimeSegments / 2, maxScrollValue)
+                );
+                animateScrollTo(targetScrollValue);
+            }
+        }
+
         function onScrollValueChanged(newValue: number) {
             scrollValue = newValue;
             captureScrollAnchor(scrollValue);
@@ -877,6 +934,29 @@ window.Spotfire.initialize(async (mod) => {
         function applyScrollTransform() {
             let offsetPx = scrollValue * timeSegmentSize;
             scrollContent.style("transform", `translate${isHorizontal ? "X" : "Y"}(${-offsetPx}px)`);
+        }
+
+        // Eases scrollValue toward targetValue over a fixed duration, ticking via the same
+        // setTimeout mechanism as scroll() below and sharing activeScrollTimeoutId with it -
+        // a new render's cancelAutoScroll() (called at the top of render()) cleanly stops a
+        // still-running animation from a previous render the same way it already stops a
+        // stale ctrl+doubleclick auto-play loop.
+        function animateScrollTo(targetValue: number) {
+            const startValue = scrollValue;
+            const startTime = Date.now();
+            const durationMs = 400;
+
+            function step() {
+                const t = Math.min(1, (Date.now() - startTime) / durationMs);
+                const eased = 1 - Math.pow(1 - t, 3);
+                scrollValue = startValue + (targetValue - startValue) * eased;
+                captureScrollAnchor(scrollValue);
+                timelineScrollBar.setValue(scrollValue);
+                applyScrollTransform();
+                renderVisibleWindow();
+                activeScrollTimeoutId = t < 1 ? setTimeout(step, 16) : null;
+            }
+            step();
         }
 
         // Start/Stop automatic timeline scrolling with ctrl-key or metakey + doubleclick
