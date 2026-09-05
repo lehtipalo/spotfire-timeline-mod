@@ -54,10 +54,8 @@ const timelineScrollBar = scrollBarControl(modContainer);
 
 let selection: Rect = { x1: 0, y1: 0, x2: 0, y2: 0 };
 
-// Tracks the mousemove/mouseup/blur listeners of an in-progress drag selection so a
-// stale drag from a previous render (with rows belonging to an already disposed
-// DataView) can be cancelled when a new render arrives before the user releases the
-// mouse.
+// Remembers which listeners belong to the current in-progress drag,  so if a re-render happens mid-drag, 
+// the old (now-stale) listeners can be found and removed before they run against disposed data
 let activeMouseMoveHandler: ((event: MouseEvent) => void) | null = null;
 let activeMouseUpHandler: ((event: MouseEvent) => void) | null = null;
 let activeBlurHandler: (() => void) | null = null;
