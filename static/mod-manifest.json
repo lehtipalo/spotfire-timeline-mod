@@ -30,7 +30,7 @@
     "properties": [
         { "name": "orientation", "type": "string", "defaultValue": "horizontal" },
         { "name": "cardAlignment", "type": "string", "defaultValue": "middle" },
-        { "name": "cardDensity", "type": "string", "defaultValue": "dense" },
+        { "name": "allowCardOverlap", "type": "boolean", "defaultValue": true },
         { "name": "cardSize", "type": "string", "defaultValue": "medium" }
     ],
     "files": ["index.html", "main.css", "bundle.js"]

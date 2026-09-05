@@ -1,6 +1,6 @@
 import { Selection, BaseType } from "d3-selection";
 import type { Mod } from "spotfire-api";
-import type { Orientation, CardAlignment, CardDensity, CardSize } from "./index";
+import type { Orientation, CardAlignment, CardSize } from "./index";
 
 // stroke="currentColor" picks up #settingsButton's own `color` style via inheritance.
 const settingsIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -51,7 +51,7 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
         modMargin: number;
         orientation: Orientation;
         cardAlignment: CardAlignment;
-        cardDensity: CardDensity;
+        allowCardOverlap: boolean;
         cardSize: CardSize;
     }) {
         const {
@@ -61,7 +61,7 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
             modMargin,
             orientation,
             cardAlignment,
-            cardDensity,
+            allowCardOverlap,
             cardSize
         } = options;
 
@@ -96,8 +96,8 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
                                 const [newOrientation, newCardAlignment] = (event.value as string).split("-");
                                 mod.property<string>("orientation").set(newOrientation);
                                 mod.property<string>("cardAlignment").set(newCardAlignment);
-                            } else if (event.name === "cardDensity") {
-                                mod.property<string>("cardDensity").set(event.value as string);
+                            } else if (event.name === "allowCardOverlap") {
+                                mod.property<boolean>("allowCardOverlap").set(event.value as boolean);
                             } else if (event.name === "cardSize") {
                                 mod.property<string>("cardSize").set(event.value as string);
                             }
@@ -151,23 +151,6 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
                             ]
                         }),
                         mod.controls.popout.section({
-                            heading: "Card Density",
-                            children: [
-                                mod.controls.popout.components.radioButton({
-                                    name: "cardDensity",
-                                    text: "Dense",
-                                    checked: cardDensity === "dense",
-                                    value: "dense"
-                                }),
-                                mod.controls.popout.components.radioButton({
-                                    name: "cardDensity",
-                                    text: "Spacious",
-                                    checked: cardDensity === "spacious",
-                                    value: "spacious"
-                                })
-                            ]
-                        }),
-                        mod.controls.popout.section({
                             heading: "Card Size",
                             children: [
                                 mod.controls.popout.components.radioButton({
@@ -187,6 +170,17 @@ export function settingsButtonControl(modContainer: Selection<BaseType, unknown,
                                     text: "Large",
                                     checked: cardSize === "large",
                                     value: "large"
+                                })
+                            ]
+                        }),
+                        mod.controls.popout.section({
+                            heading: "Behavior",
+                            children: [
+                                mod.controls.popout.components.checkbox({
+                                    name: "allowCardOverlap",
+                                    text: "Allow cards to overlap",
+                                    checked: allowCardOverlap,
+                                    enabled: true
                                 })
                             ]
                         })

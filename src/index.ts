@@ -6,20 +6,19 @@ import { balancedLaneLayout } from "./balancedLaneLayout";
 import { contrastColor } from "./color";
 import { settingsButtonControl } from "./settingsButtonControl";
 
-// Keep in sync with the "cardDensity" property's defaultValue in mod-manifest.json - that's
-// what Spotfire assigns before this code ever runs, so this fallback (only reached once the
-// property already exists but holds something other than "spacious") should agree with it.
-const defaultCardDensity: "dense" | "spacious" = "dense";
+// Keep in sync with the "allowCardOverlap" property's defaultValue in mod-manifest.json -
+// that's what Spotfire assigns before this code ever runs, so this fallback (only reached
+// if the property value is ever null) should agree with it.
+const defaultAllowCardOverlap = true;
 
 // Keep in sync with the "cardSize" property's defaultValue in mod-manifest.json - same
-// reasoning as defaultCardDensity above. "medium" is also pinned to today's fixed card
+// reasoning as defaultAllowCardOverlap above. "medium" is also pinned to today's fixed card
 // size (see cardSizeMultiplier below) so existing reports don't change appearance on
 // upgrade.
 const defaultCardSize: "small" | "medium" | "large" = "medium";
 
 export type Orientation = "horizontal" | "vertical";
 export type CardAlignment = "start" | "middle" | "end";
-export type CardDensity = "dense" | "spacious";
 export type CardSize = "small" | "medium" | "large";
 
 interface Card {
@@ -227,7 +226,7 @@ window.Spotfire.initialize(async (mod) => {
         mod.windowSize(),
         mod.property<string>("orientation"),
         mod.property<string>("cardAlignment"),
-        mod.property<string>("cardDensity"),
+        mod.property<boolean>("allowCardOverlap"),
         mod.property<string>("cardSize")
     );
 
@@ -270,7 +269,7 @@ window.Spotfire.initialize(async (mod) => {
         windowSize: Spotfire.Size,
         orientationProperty: ModProperty<string>,
         cardAlignmentProperty: ModProperty<string>,
-        cardDensityProperty: ModProperty<string>,
+        allowCardOverlapProperty: ModProperty<boolean>,
         cardSizeProperty: ModProperty<string>
     ) {
         // Cancel any drag selection still in progress from a previous render - its listeners
@@ -290,8 +289,7 @@ window.Spotfire.initialize(async (mod) => {
         const cardAlignmentValue = cardAlignmentProperty.value<string>();
         const cardAlignment: "start" | "middle" | "end" =
             cardAlignmentValue === "start" || cardAlignmentValue === "end" ? cardAlignmentValue : "middle";
-        const cardDensityValue = cardDensityProperty.value<string>();
-        const cardDensity: "dense" | "spacious" = cardDensityValue === "spacious" ? "spacious" : defaultCardDensity;
+        const allowCardOverlap = allowCardOverlapProperty.value<boolean>() ?? defaultAllowCardOverlap;
         const cardSizeValue = cardSizeProperty.value<string>();
         const cardSize: CardSize =
             cardSizeValue === "small" || cardSizeValue === "large" ? cardSizeValue : defaultCardSize;
@@ -572,13 +570,13 @@ window.Spotfire.initialize(async (mod) => {
         // "middle" alignment splits lanes across 2 groups (see laneInfo); "start"/"end" put
         // every lane in a single group.
         const numAlignmentGroups = cardAlignment === "middle" ? 2 : 1;
-        // "Dense" lets cards overlap down to roughly one line of card text - .card has no
-        // explicit line-height (browser default, ~1.15-1.2x font size), so this is a
+        // Allowing overlap lets cards overlap down to roughly one line of card text - .card
+        // has no explicit line-height (browser default, ~1.15-1.2x font size), so this is a
         // deliberately approximate floor, not a measurement of actual rendered text. See
-        // LayoutContext.minVisibleCrossExtent. "Spacious" passes a value balancedLaneLayout
-        // clamps down to its own natural (non-overlapping) pitch - Infinity rather than
-        // duplicating that pitch formula here.
-        const minVisibleCrossExtent = cardDensity === "spacious" ? Infinity : fontSize * 1.4;
+        // LayoutContext.minVisibleCrossExtent. Disallowing it passes a value
+        // balancedLaneLayout clamps down to its own natural (non-overlapping) pitch -
+        // Infinity rather than duplicating that pitch formula here.
+        const minVisibleCrossExtent = allowCardOverlap ? fontSize * 1.4 : Infinity;
         const cardLayout = balancedLaneLayout(cards, drawingAreaAlongSize, drawingAreaCrossSize, timeLineCrossPos, {
             timeSegmentsPerCard,
             crossCardExtent,
@@ -629,7 +627,7 @@ window.Spotfire.initialize(async (mod) => {
             modMargin,
             orientation,
             cardAlignment,
-            cardDensity,
+            allowCardOverlap,
             cardSize
         });
         updateSettingsButtonVisibility();
