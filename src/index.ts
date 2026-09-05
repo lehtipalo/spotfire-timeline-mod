@@ -963,7 +963,15 @@ window.Spotfire.initialize(async (mod) => {
 
         function doubleclickHandler(event: MouseEvent) {
             if (event.ctrlKey || event.metaKey) {
-                if (!autoScroll) {
+                // Checked against activeScrollTimeoutId rather than autoScroll - autoScroll only
+                // tracks this loop's own state, so it can't see an animateScrollTo animation
+                // (autoScrollToMarked) already driving scrollValue via the same shared timeout
+                // id. Starting scroll() on top of that would leave both loops overwriting
+                // activeScrollTimeoutId independently, jittering scrollValue and orphaning
+                // whichever loop's timeout gets clobbered last (see animateScrollTo's comment).
+                // Falling to the cancel branch instead just stops the in-flight animation, same
+                // as it would stop a previous scroll() run.
+                if (activeScrollTimeoutId === null) {
                     autoScroll = true;
                     scroll();
                 } else {
