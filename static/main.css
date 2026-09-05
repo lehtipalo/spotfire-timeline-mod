@@ -1,5 +1,6 @@
 
 body {
+    margin: 0;
     overflow-y:hidden;
     overflow-x:hidden;
 }
@@ -7,8 +8,13 @@ body {
 #mod-container {
     height: 100%;
     width: 100%;
-    overflow-x:auto;
+    overflow-x:hidden;
     overflow-y:hidden;
+     margin: 2px;
+    /* Re-anchors #settingsButton/#scrollBar (its position:absolute children, using
+       top/right/bottom) to this box instead of the viewport, so they follow this margin
+       too rather than sitting flush against the true edge while the content is inset. */
+    position: relative;
 }
 
 #interactionLayer {
@@ -46,10 +52,18 @@ body {
 #scrollContent {
     position: relative;
     height: 100%;
+    width:100%;
 }
 
 #scrollBar {
     position: absolute;
+    /* Floats on top of the drawing area's content (see drawingAreaCrossSize in index.ts -
+       it no longer reserves dead space beside the scrollbar), so it must out-rank .card's
+       own DOM-order stacking regardless of insertion order - #scrollBar is appended to
+       #mod-container once at startup, before #drawingLayer/.card ever exist, so without
+       this it would render *underneath* every card instead of over them. Above
+       .card:hover's z-index:1 too, so a hovered card never pokes through it. */
+    z-index: 2;
     box-sizing: border-box;
     border: solid 1px;
     border-radius: 4px;
@@ -140,6 +154,7 @@ body {
     text-overflow: ellipsis;
     user-select: none;
     -webkit-user-drag: none;
+    box-sizing: border-box;
     padding: 2px;
     margin: 0px;
     border-radius: 4px;

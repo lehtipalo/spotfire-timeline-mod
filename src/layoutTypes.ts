@@ -16,6 +16,17 @@ export interface LayoutEvent {
 export interface LayoutResult {
     verticalPosition: number;
     cardSpacing: number;
+    // True when the algorithm parked this event in its shared overflow lane rather than a
+    // real one - i.e. it's guaranteed unreachable at any pitch the algorithm would ever
+    // choose, regardless of the card's actual on-screen pixel position. Callers can use
+    // this as a cheap, correct-by-construction filter (e.g. skipping DOM creation for cards
+    // that can never be visible) instead of re-deriving visibility from cardSpacing and
+    // their own pixel geometry - a computation that would otherwise have to independently
+    // agree with the algorithm's own overflow threshold. It's a one-way guarantee: false
+    // doesn't promise the card is fully on-screen, only that the algorithm didn't already
+    // give up on it - final clipping of the rare near-the-edge case is still up to the
+    // renderer (e.g. CSS overflow:hidden).
+    offScreen: boolean;
 }
 
 export interface LayoutContext {
@@ -36,6 +47,13 @@ export interface LayoutContext {
     // crossCardExtent means no overlap is ever allowed (equivalent to omitting this
     // concept entirely) - algorithms that don't support graceful overlap can ignore it.
     minVisibleCrossExtent: number;
+    // Extra cross-axis room to leave empty beyond the outermost lane on each side, on top
+    // of crossCardExtent itself - e.g. so a card's CSS box-shadow (which paints outside its
+    // layout box) doesn't get sliced off by the renderer's overflow:hidden when the
+    // outermost card is positioned flush against the edge of the available space. Purely
+    // cosmetic breathing room, not part of what makes a card reachable - unlike
+    // minVisibleCrossExtent, it isn't something an algorithm may squeeze past.
+    outerEdgeMargin: number;
 }
 
 export type LayoutAlgorithm = (

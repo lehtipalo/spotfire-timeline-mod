@@ -14,6 +14,9 @@ interface Card {
     // Cross-axis lane pitch for this card - see the local-peak search below for how it's
     // derived. Filled in after verticalPosition is assigned.
     cardSpacing: number;
+    // Mirrors LayoutResult.offScreen - true when the layout algorithm gave up on finding
+    // this card a real lane, i.e. it's guaranteed unreachable regardless of pixel geometry.
+    offScreen: boolean;
     description: string;
     color: DataViewColorInfo;
     row: DataViewRow;
@@ -33,7 +36,18 @@ const timeAxisName = "Time",
     eventAxisName = "Event",
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
-    scrollBarHeight = 16;
+    scrollBarHeight = 16,
+    // .card's box-shadow (main.css) paints outside its layout box - up to offset+blur past
+    // the far edge (2px + 5px = 7px for the outer shadow layer). Reserved as
+    // LayoutContext.outerEdgeMargin so the outermost lane on each side never sits flush
+    // against #drawingLayer's overflow:hidden boundary, which would slice the shadow off
+    // that one edge while every other card shows it in full.
+    cardShadowBleed = 8,
+    // Purely cosmetic breathing room between #mod-container's own edge and Spotfire's own
+    // axis-selector chrome just outside it, which otherwise sits flush against our content.
+    // Must match #mod-container's CSS margin in main.css - see availableSize below for why
+    // that pairing matters (an unmatched margin/size would silently clip content again).
+    modMargin = 2;
 
 // stroke="currentColor" picks up #settingsButton's own `color` style via inheritance.
 const settingsIconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -243,10 +257,21 @@ window.Spotfire.initialize(async (mod) => {
             cardAlignmentValue === "start" || cardAlignmentValue === "end" ? cardAlignmentValue : "middle";
         const cardDensityValue = cardDensityProperty.value<string>();
         const cardDensity: "dense" | "spacious" = cardDensityValue === "spacious" ? "spacious" : defaultCardDensity;
+        // #mod-container is given a matching CSS margin (see main.css) so its content sits
+        // a few pixels clear of Spotfire's own axis-selector chrome just outside our
+        // rendering area, instead of butting flush against it. windowSize itself is always
+        // the *full* area Spotfire allotted us - #mod-container's own JS-set size must be
+        // shrunk by the same margin on both sides, or it would overflow past its own margin
+        // and get sliced off by body's overflow:hidden, the same way an unreset default body
+        // margin once did (see the box-sizing fix history in balancedLaneLayout/main.css).
+        const availableSize = {
+            width: windowSize.width - 2 * modMargin,
+            height: windowSize.height - 2 * modMargin
+        };
         // The axis along which the timeline runs/scrolls, and the axis across which cards
         // stack away from it - horizontal maps along->x/cross->y, vertical is the mirror.
-        const mainSize = isHorizontal ? windowSize.width : windowSize.height;
-        const crossSize = isHorizontal ? windowSize.height : windowSize.width;
+        const mainSize = isHorizontal ? availableSize.width : availableSize.height;
+        const crossSize = isHorizontal ? availableSize.height : availableSize.width;
         const alongProp: "left" | "top" = isHorizontal ? "left" : "top";
         const crossProp: "left" | "top" = isHorizontal ? "top" : "left";
         const alongSizeProp: "width" | "height" = isHorizontal ? "width" : "height";
@@ -403,11 +428,15 @@ window.Spotfire.initialize(async (mod) => {
         // derivation above.
         const edgeMargin = alongCardExtent / 2;
         const timeSegmentsPerCard = alongSegmentsPerCard;
-        const drawingAreaCrossSize = crossSize - 35;
+        // No longer trimmed for the scrollbar - like Spotfire's own native visualizations,
+        // the scrollbar (see #scrollBar's z-index in main.css) floats on top of the drawing
+        // area on hover rather than claiming permanent dead space beside it. It's already
+        // positioned against the true crossSize edge (see the timelineScrollBar.update call
+        // below), so content can now use that space right up to the same edge.
+        const drawingAreaCrossSize = crossSize;
         const timelineCrossExtent = timelineLevelHeight * timeHierarchyDepth;
-        // Centered within the actual visible (scrollbar-trimmed) drawing area, not the raw
-        // window - centering on crossSize would push the timeline (and everything stacked
-        // off it) 35px lower/righter than the clipped viewport actually has room for.
+        // Centered within the drawing area, not the raw window - the two now coincide since
+        // the scrollbar floats rather than being trimmed out of crossSize (see above).
         // In "start"/"end" alignment, all cards render on one side, so the timeline instead
         // anchors near the opposite edge to free up the rest of the cross axis for stacking.
         const timeLineCrossPos =
@@ -452,6 +481,7 @@ window.Spotfire.initialize(async (mod) => {
                         description: hasEventAxis ? row.categorical(eventAxisName).formattedValue() : "",
                         verticalPosition: 0,
                         cardSpacing: 0,
+                        offScreen: false,
                         timePosition: row.categorical(timeAxisName).leafIndex,
                         color: row.color(),
                         row: row
@@ -480,11 +510,13 @@ window.Spotfire.initialize(async (mod) => {
             crossSpaceBetweenCards,
             numAlignmentGroups,
             timelineCrossExtent: timelineLevelHeight * timeHierarchyDepth,
-            minVisibleCrossExtent
+            minVisibleCrossExtent,
+            outerEdgeMargin: cardShadowBleed
         });
         cards.forEach((card, i) => {
             card.verticalPosition = cardLayout[i].verticalPosition;
             card.cardSpacing = cardLayout[i].cardSpacing;
+            card.offScreen = cardLayout[i].offScreen;
         });
 
         /**
@@ -547,8 +579,12 @@ window.Spotfire.initialize(async (mod) => {
             .on("click", () => {
                 mod.controls.popout.show(
                     {
-                        x: windowSize.width - settingsButtonRight - settingsButtonSize,
-                        y: settingsButtonTop + settingsButtonSize / 2,
+                        // #settingsButton's top/right are relative to #mod-container, which
+                        // is itself inset by modMargin from windowSize's true edges (see
+                        // availableSize above) - popout.show wants true iframe-relative
+                        // coordinates, so that inset has to be added back in here.
+                        x: windowSize.width - modMargin - settingsButtonRight - settingsButtonSize,
+                        y: modMargin + settingsButtonTop + settingsButtonSize / 2,
                         alignment: "Right",
                         autoClose: true,
                         onChange: (event) => {
@@ -632,11 +668,15 @@ window.Spotfire.initialize(async (mod) => {
         updateSettingsButtonVisibility();
 
         // #mod-container has no CSS height of its own - it auto-sizes to its normal-flow
-        // content, which is just drawingLayer (shorter than windowSize.height). The
+        // content, which is just drawingLayer (shorter than availableSize.height). The
         // scrollbar, positioned near the true bottom of the mod, would then render outside
         // mod-container's own box, so hovering it would count as a mouseleave on the
-        // container it's meant to be part of. Size it explicitly to the full viewport.
-        modContainer.style("width", `${windowSize.width}px`).style("height", `${windowSize.height}px`);
+        // container it's meant to be part of. Size it explicitly to the full available area -
+        // availableSize, not the raw windowSize, since #mod-container's CSS margin (main.css)
+        // already claims modMargin on each side; sizing it to the full windowSize on top of
+        // that margin would push it past body's own (unmargined) edges and get sliced off by
+        // body's overflow:hidden - the same failure mode the body-margin fix earlier caught.
+        modContainer.style("width", `${availableSize.width}px`).style("height", `${availableSize.height}px`);
 
         // Drawing Layer - fixed to the viewport. scrollContent is the full (possibly larger)
         // content that gets panned along the timeline axis via a CSS transform.
@@ -752,11 +792,15 @@ window.Spotfire.initialize(async (mod) => {
             //
             // Filtered further than visibleCards (which only bounds the along axis): a
             // dense cluster can pack far more events into a time window than lanes fit in
-            // the cross axis (see balancedLaneLayout's visible-lane cap), and those excess
-            // events are all still inside the along-axis window - without this, a cluster
-            // like the "Cluster stress test" datasets would join thousands of full cards
-            // (flexbox layout, text, hover listeners) into the DOM only for all but a
-            // handful to render nothing, clipped by #drawingLayer's overflow:hidden.
+            // the cross axis, and those excess events are all still inside the along-axis
+            // window - without this, a cluster like the "Cluster stress test" datasets
+            // would join thousands of full cards (flexbox layout, text, hover listeners)
+            // into the DOM only for all but a handful to render nothing, clipped by
+            // #drawingLayer's overflow:hidden. card.offScreen (from LayoutResult) is the
+            // layout algorithm's own record of which events it gave up finding a real lane
+            // for, so this filter doesn't need to re-derive unreachability from cardSpacing
+            // and pixel geometry itself - it's a performance pre-filter, not the source of
+            // correctness, which is still CSS overflow:hidden.
             // Connectors stay on the unfiltered visibleCards - they're cheap (no text, no
             // listeners) and, per calcConnectorCrossPos, a connector for an off-screen card
             // always shows a real sliver reaching in from the timeline regardless of lane
@@ -771,10 +815,7 @@ window.Spotfire.initialize(async (mod) => {
             // the exposed sliver actually shows the start of its text instead of the blank
             // padding around centered text.
             let visibleCardsInCrossAxis = visibleCards
-                .filter((c: Card) => {
-                    let crossPos = calculateCardCrossPos(c);
-                    return crossPos + crossCardExtent > 0 && crossPos < drawingAreaCrossSize;
-                })
+                .filter((c: Card) => !c.offScreen)
                 .sort((a, b) => a.verticalPosition - b.verticalPosition);
 
             // Aligns a card's text toward its own near-timeline edge (see the join comment
