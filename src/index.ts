@@ -36,7 +36,16 @@ const timeAxisName = "Time",
     eventAxisName = "Event",
     verticalSpaceBetweenCards = 12.5,
     horizontalSpaceBetweenCards = 12.5,
-    scrollBarHeight = 16,
+    // Slimmer than the old 16px - Spotfire's own native scrollbars read noticeably thinner
+    // than that.
+    scrollBarHeight = 10,
+    // Flat, theme-independent gray rather than uiChromeColor (the settings button's own
+    // "interactive toolbar chrome" tone, derived from the visualization's font color) -
+    // Spotfire's native scrollbar thumb doesn't tint itself to the viz's own accent/font
+    // color, it's a fixed muted gray that works the same regardless of theme. Semi-
+    // transparent so it blends into whatever's underneath rather than reading as a flat
+    // opaque shape.
+    scrollBarColor = "rgba(120, 120, 120, 0.5)",
     // .card's box-shadow (main.css) paints outside its layout box - up to offset+blur past
     // the far edge (2px + 5px = 7px for the outer shadow layer). Reserved as
     // LayoutContext.outerEdgeMargin so the outermost lane on each side never sits flush
@@ -733,9 +742,13 @@ window.Spotfire.initialize(async (mod) => {
             value: scrollValue,
             maxValue: maxScrollValue,
             extent: visibleTimeSegments,
-            // Same reasoning as the settings button above - interactive chrome uses the
-            // primary foreground color, not the muted scale-line color.
-            color: uiChromeColor,
+            // Unlike the settings button, the scrollbar aims for Spotfire's own native,
+            // theme-independent muted look rather than "interactive toolbar chrome" -
+            // see scrollBarColor's declaration for why. Spotfire's native toolbars/scrollbar
+            // are opaque (with their own thin light-gray border, set directly in main.css),
+            // not see-through - it just reads as subtle because the border/thumb tones are
+            // both so light, not because anything is transparent.
+            color: scrollBarColor,
             background: context.styling.general.backgroundColor,
             scrollDistance: timeSegmentSize,
             valueChanged: onScrollValueChanged

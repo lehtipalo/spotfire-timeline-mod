@@ -65,7 +65,10 @@ body {
        .card:hover's z-index:1 too, so a hovered card never pokes through it. */
     z-index: 2;
     box-sizing: border-box;
-    border: solid 1px;
+    /* Thin and light, like Spotfire's native toolbar border (e.g. .timeMarker's own
+       lightgray border below) - not JS/theme-driven, since it's meant to read as fixed,
+       muted chrome rather than an accent that shifts with the visualization's own colors. */
+    border: solid 1px lightgray;
     border-radius: 4px;
     user-select: none;
     display: flex;

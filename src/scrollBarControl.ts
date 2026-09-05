@@ -189,7 +189,6 @@ export function scrollBarControl(context: Selection<BaseType, unknown, HTMLEleme
             .style("left", `${left}px`)
             .style("top", `${top}px`)
             .style("flex-direction", isHorizontal ? "row" : "column")
-            .style("border-color", color)
             .style("background-color", background);
 
         let trackSpan = Math.max(0, trackEnd - trackStart);
