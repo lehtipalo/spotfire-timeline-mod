@@ -414,16 +414,24 @@ window.Spotfire.initialize(async (mod) => {
         const freeTimeSegmentSize = (mainSize + alongGap) / (timeLeaves.length + alongSegmentsPerCard);
         let timeSegmentSize = Math.max(minimumTimeSegmentWidth, freeTimeSegmentSize);
 
-        const cardHeight = timeSegmentSize - verticalSpaceBetweenCards;
-        const cardWidth = 2 * timeSegmentSize - horizontalSpaceBetweenCards;
+        // Pinned to minimumTimeSegmentWidth rather than the live timeSegmentSize above,
+        // which can grow arbitrarily large: a short timeline with only a handful of
+        // segments would otherwise stretch freeTimeSegmentSize - and with it the cards - to
+        // fill mainSize, ballooning them well past a readable size. Segments themselves are
+        // still free to grow past the card's own size for breathing room; only the card box
+        // itself stays fixed.
+        const cardHeight = minimumTimeSegmentWidth - verticalSpaceBetweenCards;
+        const cardWidth = 2 * minimumTimeSegmentWidth - horizontalSpaceBetweenCards;
         // The card's fixed rendered box (cardWidth x cardHeight) never rotates - text must
         // stay upright in both modes - but which of its two dimensions plays the "along the
         // timeline" role (spacing/collision) vs the "across/stacking" role swaps by orientation.
         const alongCardExtent = isHorizontal ? cardWidth : cardHeight;
         const crossCardExtent = isHorizontal ? cardHeight : cardWidth;
         // The actual reserved space at each edge of the content for a card centered on the
-        // first/last segment to spill into - exactly half the along-axis card size, per the
-        // derivation above.
+        // first/last segment to spill into - exactly half the along-axis card size. Note this
+        // no longer matches the edgeMargin the derivation above assumed (that assumed cardWidth
+        // stayed tied to timeSegmentSize) - freeTimeSegmentSize below is still solving for the
+        // old, no-longer-quite-accurate relationship, which only matters away from the floor.
         const edgeMargin = alongCardExtent / 2;
         const timeSegmentsPerCard = alongSegmentsPerCard;
         // No longer trimmed for the scrollbar - like Spotfire's own native visualizations,
