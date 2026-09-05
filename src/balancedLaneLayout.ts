@@ -63,8 +63,17 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
     // fitting exactly `availablePerSide` worth of lanes still leaves outerEdgeMargin of
     // untouched space past the outermost one, on every side, for the same reason
     // fixedFootprint's derivation holds regardless of how tight the squeeze gets.
+    //
+    // The single-group ("start"/"end") case additionally subtracts crossSpaceBetweenCards:
+    // unlike "middle" (where the timeline sits exactly centered, so secondarySize/2 already
+    // is each side's true budget), "start"/"end" anchor the timeline crossSpaceBetweenCards
+    // in from the drawing area's edge (see timeLineCrossPos in index.ts), so that same gap
+    // has to come out of the far side's budget too, or the outermost lane's card (and its
+    // shadow) can clip past the edge this margin exists to protect.
     const availablePerSide =
-        (numAlignmentGroups === 2 ? (secondarySize - timelineCrossExtent) / 2 : secondarySize - timelineCrossExtent) -
+        (numAlignmentGroups === 2
+            ? (secondarySize - timelineCrossExtent) / 2
+            : secondarySize - timelineCrossExtent - crossSpaceBetweenCards) -
         outerEdgeMargin;
     const maxVisibleLanes = Math.max(
         1,
