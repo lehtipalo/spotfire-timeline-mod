@@ -6,6 +6,9 @@ import { balancedLaneLayout } from "./balancedLaneLayout";
 import { contrastColor } from "./color";
 import { settingsButtonControl } from "./settingsButtonControl";
 
+// Keep in sync with the "cardDensity" property's defaultValue in mod-manifest.json - that's
+// what Spotfire assigns before this code ever runs, so this fallback (only reached once the
+// property already exists but holds something other than "spacious") should agree with it.
 const defaultCardDensity: "dense" | "spacious" = "dense";
 
 export type Orientation = "horizontal" | "vertical";
@@ -124,15 +127,19 @@ window.Spotfire.initialize(async (mod) => {
     // same raw index silently starts pointing at an unrelated point in time once the
     // hierarchy reshapes.
     //
-    // `path` is the formatted value of each ancestor level (top down, excluding the
-    // invisible true root) of the leaf at the *center* of the viewport, e.g.
-    // ["1946", "Jun"] for a Year > Month leaf. Resolving walks the new hierarchy from the
-    // root matching path segments level by level - each level's own value against itself,
-    // which stays valid regardless of how many levels exist above or below it - then reads
-    // the *actual* leaf-index range of wherever that walk ends up, so an irregular bucket
-    // (e.g. a dataset's first year only having its last few months) is handled by
-    // construction rather than by an assumption that has to hold. `fraction` (0-1) is the
-    // remaining sub-position within the deepest matched node's own leaf range.
+    // `path` is, for each ancestor level (top down, excluding the invisible true root) of
+    // the leaf at the *center* of the viewport, that node's key plus its position among its
+    // own siblings - e.g. [{key: "1946", ...}, {key: "Jun", ...}] for a Year > Month leaf.
+    // Resolving walks the new hierarchy from the root matching path entries level by level
+    // - each level's own key against itself, which stays valid regardless of how many
+    // levels exist above or below it. `key` (rather than formattedValue()) is used because
+    // it's guaranteed unique among siblings, whereas two distinct sibling values can format
+    // to the same display string. When a level's exact key is no longer present (e.g. that
+    // bucket was filtered/marked out), the walk falls back to the child at the closest
+    // relative sibling position instead of giving up - so a single missing bucket doesn't
+    // widen the eventual match all the way out to some broad ancestor's entire leaf range.
+    // `fraction` (0-1) is the remaining sub-position within the deepest matched node's own
+    // leaf range.
     //
     // Two simpler approaches were tried first and both broke on real data:
     //  - Anchoring to a leaf's own DataViewHierarchyNode.value() directly: only reflects
@@ -147,7 +154,8 @@ window.Spotfire.initialize(async (mod) => {
     // console logging that it isn't: it points to a real root node (formattedValue() "",
     // value() null), whose *own* .parent is what's actually undefined. The capture walk
     // below stops there correctly now.
-    let scrollAnchor: { path: string[]; fraction: number } | null = null;
+    type ScrollAnchorPathEntry = { key: string; siblingIndex: number; siblingCount: number };
+    let scrollAnchor: { path: ScrollAnchorPathEntry[]; fraction: number } | null = null;
     // Whether the timeline currently overflows the viewport at all, and whether the mouse
     // is over the visualization - the scrollbar only shows when both are true. Persisted
     // (rather than render-local) since hover can change independently of any render pass.
@@ -327,21 +335,30 @@ window.Spotfire.initialize(async (mod) => {
 
         // Turns a previously captured scrollAnchor back into a scrollValue (the viewport's
         // left edge) for this render's (possibly reshaped) hierarchy: walks from the root
-        // matching anchor.path level by level - each level's own formattedValue against
-        // itself, so it stays valid regardless of how many levels exist above or below it
-        // - then reads the *actual* leaf-index range of wherever that walk ends up (either
-        // an exact leaf, if the new hierarchy matches the stored path's full depth, or the
-        // deepest ancestor it still has in common with it otherwise) and applies the
-        // stored sub-fraction across that real range.
-        function resolveScrollValueFromAnchor(anchor: { path: string[]; fraction: number }): number {
+        // matching anchor.path level by level - each level's own key against itself, so it
+        // stays valid regardless of how many levels exist above or below it. A level whose
+        // exact key is gone still gets approximated via its stored sibling position rather
+        // than aborting the walk, so a single filtered/marked-out bucket only nudges the
+        // result off by roughly one sibling at that level instead of widening it out to
+        // whatever ancestor's entire leaf range. Once the walk ends (at an exact leaf, if
+        // every level matched or was approximated, or earlier if some level had no children
+        // at all), the stored sub-fraction is applied across that node's real leaf range.
+        function resolveScrollValueFromAnchor(anchor: { path: ScrollAnchorPathEntry[]; fraction: number }): number {
             let node: DataViewHierarchyNode = timeHierarchyRoot!;
-            let matchedDepth = 0;
-            while (matchedDepth < anchor.path.length && node.children) {
-                const target = anchor.path[matchedDepth];
-                const child = node.children.find((c) => c.formattedValue() === target);
-                if (!child) break;
-                node = child;
-                matchedDepth++;
+            for (const entry of anchor.path) {
+                if (!node.children || node.children.length === 0) break;
+                const exact = node.children.find((c) => (c.key ?? c.formattedValue()) === entry.key);
+                if (exact) {
+                    node = exact;
+                    continue;
+                }
+                // The exact sibling is gone (e.g. filtered/marked out) - fall back to the
+                // child at the closest relative sibling position, so the walk still lands
+                // near where it was instead of stopping here and taking this whole node's
+                // (possibly much larger) leaf range as the match.
+                const ratio = entry.siblingIndex / Math.max(1, entry.siblingCount - 1);
+                const approxIndex = Math.round(ratio * (node.children.length - 1));
+                node = node.children[Math.min(node.children.length - 1, Math.max(0, approxIndex))];
             }
             const leaves = node.leaves();
             if (leaves.length === 0) return 0;
@@ -371,13 +388,19 @@ window.Spotfire.initialize(async (mod) => {
             }
             const centerValue = value + visibleTimeSegments / 2;
             const leafIndex = Math.min(timeLeaves.length - 1, Math.max(0, Math.floor(centerValue)));
-            const path: string[] = [];
+            const path: ScrollAnchorPathEntry[] = [];
             // Stops once a node's own .parent is undefined - the true root - rather than
             // once the node itself is falsy, since a top-level node's .parent is a real
             // (root) object, not undefined; see the comment on scrollAnchor's declaration.
             let node: DataViewHierarchyNode | undefined = timeLeaves[leafIndex];
             while (node && node.parent !== undefined) {
-                path.unshift(node.formattedValue());
+                const siblings = node.parent.children ?? [node];
+                const siblingIndex = Math.max(0, siblings.indexOf(node));
+                path.unshift({
+                    key: node.key ?? node.formattedValue(),
+                    siblingIndex,
+                    siblingCount: siblings.length,
+                });
                 node = node.parent;
             }
             scrollAnchor = { path, fraction: centerValue - Math.floor(centerValue) };
@@ -514,7 +537,7 @@ window.Spotfire.initialize(async (mod) => {
             crossCardExtent,
             crossSpaceBetweenCards,
             numAlignmentGroups,
-            timelineCrossExtent: timelineLevelHeight * timeHierarchyDepth,
+            timelineCrossExtent,
             minVisibleCrossExtent,
             outerEdgeMargin: cardShadowBleed
         });

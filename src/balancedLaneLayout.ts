@@ -102,6 +102,14 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
     // for side "b" - lets the local search below skip neighbours on the other side without
     // needing to decode verticalPosition back into a side.
     const sideOfEvent = new Array<0 | 1>(events.length);
+    // Per-side time-ordered subsequences of `order`, plus each event's own index within its
+    // side's subsequence - built once sides are assigned below. localPeak's two-sided search
+    // walks these directly instead of the merged (both-sides) order list, so its step budget
+    // is spent entirely on same-side neighbours: a run of many opposite-side events between
+    // two same-side events no longer eats into the budget and can no longer hide a same-side
+    // peak that's really just a few same-side neighbours away.
+    const sameSideOrder: [number[], number[]] = [[], []];
+    const sameSideIndex = new Array<number>(events.length);
 
     // A lane is free again once a new event's near edge (t - halfWidth) reaches or
     // passes the far edge of the last event placed there (t + halfWidth), recorded in
@@ -154,27 +162,52 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
         let peak = rawPeakAtInsertion[i];
         const t = events[i].timePosition;
 
+        // Single-group ("start"/"end") case: everything is one side, so the merged order
+        // list already contains only relevant neighbours.
+        if (side === null) {
+            for (
+                let j = orderIdx - 1, steps = 0;
+                j >= 0 && steps < localSearchStepBudget && peak < maxPossiblePeak;
+                j--, steps++
+            ) {
+                const other = order[j];
+                if (t - events[other].timePosition >= timeSegmentsPerCard) break;
+                peak = Math.max(peak, rawPeakAtInsertion[other]);
+            }
+            for (
+                let j = orderIdx + 1, steps = 0;
+                j < order.length && steps < localSearchStepBudget && peak < maxPossiblePeak;
+                j++, steps++
+            ) {
+                const other = order[j];
+                if (events[other].timePosition - t >= timeSegmentsPerCard) break;
+                peak = Math.max(peak, rawPeakAtInsertion[other]);
+            }
+            return peak;
+        }
+
+        // "middle" alignment: walk this event's own side's subsequence directly, so every
+        // one of localSearchStepBudget's steps is spent on an actual same-side neighbour
+        // rather than being burned on opposite-side events sitting in between.
+        const sideOrder = sameSideOrder[side];
+        const pos = sameSideIndex[i];
         for (
-            let j = orderIdx - 1, steps = 0;
+            let j = pos - 1, steps = 0;
             j >= 0 && steps < localSearchStepBudget && peak < maxPossiblePeak;
             j--, steps++
         ) {
-            const other = order[j];
+            const other = sideOrder[j];
             if (t - events[other].timePosition >= timeSegmentsPerCard) break;
-            if (side === null || sideOfEvent[other] === side) {
-                peak = Math.max(peak, rawPeakAtInsertion[other]);
-            }
+            peak = Math.max(peak, rawPeakAtInsertion[other]);
         }
         for (
-            let j = orderIdx + 1, steps = 0;
-            j < order.length && steps < localSearchStepBudget && peak < maxPossiblePeak;
+            let j = pos + 1, steps = 0;
+            j < sideOrder.length && steps < localSearchStepBudget && peak < maxPossiblePeak;
             j++, steps++
         ) {
-            const other = order[j];
+            const other = sideOrder[j];
             if (events[other].timePosition - t >= timeSegmentsPerCard) break;
-            if (side === null || sideOfEvent[other] === side) {
-                peak = Math.max(peak, rawPeakAtInsertion[other]);
-            }
+            peak = Math.max(peak, rawPeakAtInsertion[other]);
         }
         return peak;
     }
@@ -225,7 +258,10 @@ export const balancedLaneLayout: LayoutAlgorithm = (events, primarySize, seconda
         const lane = place(side === "a" ? bandsA : bandsB, t);
         verticalPositions[i] = side === "a" ? lane * 2 : lane * 2 + 1;
         rawPeakAtInsertion[i] = lane + 1;
-        sideOfEvent[i] = side === "a" ? 0 : 1;
+        const sideIndex = side === "a" ? 0 : 1;
+        sideOfEvent[i] = sideIndex;
+        sameSideIndex[i] = sameSideOrder[sideIndex].length;
+        sameSideOrder[sideIndex].push(i);
     });
 
     order.forEach((i, orderIdx) => {
