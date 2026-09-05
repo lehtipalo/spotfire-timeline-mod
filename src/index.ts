@@ -577,14 +577,27 @@ window.Spotfire.initialize(async (mod) => {
         // autoScrollToMarked bookkeeping: markedIdentity changing from the previous render is
         // what distinguishes an actual new marking event from an unrelated re-render (e.g. a
         // filter change elsewhere, a resize) that happens to leave the same rows marked - see
-        // previousMarkedIdentity's declaration for why that distinction matters.
-        const markedCards = cards.filter((c) => c.row.isMarked());
-        // JSON.stringify rather than a plain joined string - elementId(true) isn't documented
-        // as excluding any particular separator character, so joining with e.g. "|" risks two
-        // different marked sets hashing to the same identity if an id ever contained it.
-        const markedIdentity = JSON.stringify(markedCards.map((c) => c.row.elementId(true)));
-        const markingChanged = previousMarkedIdentity !== null && markedIdentity !== previousMarkedIdentity;
-        previousMarkedIdentity = markedIdentity;
+        // previousMarkedIdentity's declaration for why that distinction matters. Skipped
+        // entirely while the setting is off (the default) - cards can number in the tens of
+        // thousands (see the virtual-scrolling comment below), so there's no reason to scan the
+        // full list and hash every marked row's id every render for a value nothing will read.
+        let markedCards: Card[] = [];
+        let markingChanged = false;
+        if (autoScrollToMarked) {
+            markedCards = cards.filter((c) => c.row.isMarked());
+            // JSON.stringify rather than a plain joined string - elementId(true) isn't
+            // documented as excluding any particular separator character, so joining with e.g.
+            // "|" risks two different marked sets hashing to the same identity if an id ever
+            // contained it.
+            const markedIdentity = JSON.stringify(markedCards.map((c) => c.row.elementId(true)));
+            markingChanged = previousMarkedIdentity !== null && markedIdentity !== previousMarkedIdentity;
+            previousMarkedIdentity = markedIdentity;
+        } else {
+            // Reset rather than leave stale, so re-enabling the setting later starts fresh
+            // (treated like a first render - no immediate scroll from state observed while it
+            // was off) instead of comparing against a possibly many-renders-old snapshot.
+            previousMarkedIdentity = null;
+        }
 
         // Shuffle cards on top of each other to fit across the stacking axis, within
         // drawingAreaCrossSize - currently just crossSize (see its declaration above: the
@@ -748,9 +761,17 @@ window.Spotfire.initialize(async (mod) => {
         let renderedRangeStart = Infinity;
         let renderedRangeEnd = -Infinity;
 
+        // The along-axis pixel span currently on screen (no overscan) - shared by
+        // renderVisibleWindow (which then widens it by an overscan buffer for the DOM-join
+        // window) and the auto-scroll-to-marked visibility check below, so the two don't each
+        // maintain their own copy of the same scrollValue -> px conversion.
+        function currentViewportPx() {
+            const start = scrollValue * timeSegmentSize;
+            return { start, end: start + mainSize };
+        }
+
         function renderVisibleWindow() {
-            let viewportStartPx = scrollValue * timeSegmentSize;
-            let viewportEndPx = viewportStartPx + mainSize;
+            let { start: viewportStartPx, end: viewportEndPx } = currentViewportPx();
 
             // Already-rendered window (with its overscan buffer) still covers the viewport -
             // nothing new would come into view, so skip the rejoin entirely.
@@ -900,8 +921,7 @@ window.Spotfire.initialize(async (mod) => {
         // couldn't be placed in a visible lane (see Card.offScreen) - the time position is still
         // correct even when the card box isn't reachable.
         if (autoScrollToMarked && markingChanged && markedCards.length > 0) {
-            const viewportStartPx = scrollValue * timeSegmentSize;
-            const viewportEndPx = viewportStartPx + mainSize;
+            const { start: viewportStartPx, end: viewportEndPx } = currentViewportPx();
             // A card the layout gave up placing in a real lane (c.offScreen) never reads as
             // "visible" here even if its along-axis position falls inside the viewport - per
             // renderVisibleWindow, only its connector's thin sliver shows for it, not its actual
@@ -921,9 +941,18 @@ window.Spotfire.initialize(async (mod) => {
                         : c.timePosition > viewportEndValue
                           ? c.timePosition - viewportEndValue
                           : 0;
-                const closestMarkedCard = markedCards.reduce((closest, c) =>
-                    distanceFromViewport(c) < distanceFromViewport(closest) ? c : closest
-                );
+                // Tracks a running best distance/card pair instead of a plain reduce, which
+                // would otherwise call distanceFromViewport on both the running "closest" and
+                // the current element every iteration - twice the calls actually needed.
+                let closestMarkedCard = markedCards[0];
+                let closestDistance = distanceFromViewport(closestMarkedCard);
+                for (let i = 1; i < markedCards.length; i++) {
+                    const distance = distanceFromViewport(markedCards[i]);
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closestMarkedCard = markedCards[i];
+                    }
+                }
                 const targetScrollValue = Math.max(
                     0,
                     Math.min(closestMarkedCard.timePosition - visibleTimeSegments / 2, maxScrollValue)
@@ -944,6 +973,18 @@ window.Spotfire.initialize(async (mod) => {
             scrollContent.style("transform", `translate${isHorizontal ? "X" : "Y"}(${-offsetPx}px)`);
         }
 
+        // Commits the current scrollValue to the scroll anchor, scrollbar, transform and
+        // virtual-scrolling window - the shared tail end of every scroll-driving tick, whether
+        // from the continuous ctrl+doubleclick auto-play (scroll() below) or the eased
+        // auto-scroll-to-marked animation (animateScrollTo below), so a future change to what a
+        // tick must do only needs to happen once.
+        function commitScrollValue() {
+            captureScrollAnchor(scrollValue);
+            timelineScrollBar.setValue(scrollValue);
+            applyScrollTransform();
+            renderVisibleWindow();
+        }
+
         // Eases scrollValue toward targetValue over a fixed duration, ticking via the same
         // setTimeout mechanism as scroll() below and sharing activeScrollTimeoutId with it -
         // a new render's cancelAutoScroll() (called at the top of render()) cleanly stops a
@@ -958,10 +999,7 @@ window.Spotfire.initialize(async (mod) => {
                 const t = Math.min(1, (Date.now() - startTime) / durationMs);
                 const eased = 1 - Math.pow(1 - t, 3);
                 scrollValue = startValue + (targetValue - startValue) * eased;
-                captureScrollAnchor(scrollValue);
-                timelineScrollBar.setValue(scrollValue);
-                applyScrollTransform();
-                renderVisibleWindow();
+                commitScrollValue();
                 activeScrollTimeoutId = t < 1 ? setTimeout(step, 16) : null;
             }
             step();
@@ -992,10 +1030,7 @@ window.Spotfire.initialize(async (mod) => {
             if (autoScroll && scrollValue < maxScrollValue) {
                 // Advance by roughly one pixel per tick, matching the previous native-scroll speed.
                 scrollValue = Math.min(maxScrollValue, scrollValue + 1 / timeSegmentSize);
-                captureScrollAnchor(scrollValue);
-                timelineScrollBar.setValue(scrollValue);
-                applyScrollTransform();
-                renderVisibleWindow();
+                commitScrollValue();
                 activeScrollTimeoutId = setTimeout(scroll, autoScrollSpeed);
             } else {
                 cancelAutoScroll();
